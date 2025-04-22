@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="text-center">
+    <h1 class="display-4">Welcome to DragonRise</h1>
+    <p class="lead">Join your house and climb to victory!</p>
+    
+    <div class="row mt-5">
+        {% for house in houses %}
+        <div class="col-md-4">
+            <div class="house-card {{ house.name }}">
+                <h3>{{ house.name }} House</h3>
+                <div class="points-display">{{ house.total_points }}</div>
+                <p>Total Flights: {{ house.total_flights }}</p>
+                <p>Members: {{ house.member_count }}</p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if not current_user.is_authenticated %}
+    <div class="mt-5">
+        <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg mx-2">Join Now</a>
+        <a href="{{ url_for('login') }}" class="btn btn-outline-primary btn-lg mx-2">Login</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

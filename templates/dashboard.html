@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="stats-card">
+            <h2>Welcome, {{ current_user.username }}</h2>
+            <p class="text-muted">{{ current_user.house }} House Member</p>
+            <hr>
+            <div class="row">
+                <div class="col-6">
+                    <h4>Total Flights</h4>
+                    <div class="points-display">{{ current_user.total_flights }}</div>
+                </div>
+                <div class="col-6">
+                    <h4>Total Points</h4>
+                    <div class="points-display">{{ current_user.total_points }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-card">
+            <h3>Log Your Climb</h3>
+            <form action="{{ url_for('log_climb') }}" method="post">
+                <div class="mb-3">
+                    <label for="flights" class="form-label">Number of Flights</label>
+                    <input type="number" class="form-control" id="flights" name="flights" required min="1">
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Log Climb</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="stats-card">
+            <h3>House Rankings</h3>
+            <div class="row">
+                {% for house in houses %}
+                <div class="col-md-6">
+                    <div class="house-card {{ house.name }}">
+                        <h4>{{ house.name }} House</h4>
+                        <div class="points-display">{{ house.total_points }}</div>
+                        <p>Total Flights: {{ house.total_flights }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
