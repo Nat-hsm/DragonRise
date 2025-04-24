@@ -1,12 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from flask_migrate import Migrate
+from flask_login import UserMixin, login_user, login_required, logout_user, current_user
 from flask_wtf.csrf import CSRFError, CSRFProtect
 from flask_wtf import FlaskForm
-from sqlalchemy import create_engine
-from sqlalchemy.pool import QueuePool
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.sql import text
+from sqlalchemy import create_engine, text
 from datetime import datetime
 from dotenv import load_dotenv
 import os
@@ -14,16 +12,18 @@ import logging
 import watchtower
 from utils.security import init_security, PasswordManager, require_api_key
 from utils.logging_config import LogConfig, log_activity
-# Import models from models.py
-from models import User, House, ClimbLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats
-# Import configuration
+from utils.database import setup_database
 from config import get_config, validate_config
+from extensions import db, login_manager, migrate
 
 # Load environment variables
 load_dotenv()
 
 # Create Flask app
 app = Flask(__name__)
+
+# Configure logging before anything else
+logging.basicConfig(level=logging.INFO)
 
 # Load configuration based on environment
 config = get_config()
@@ -35,24 +35,28 @@ validate_config(config)
 # Initialize app with environment-specific settings
 config.init_app(app)
 
-# Create engine with connection pooling from config settings
-engine = create_engine(
-    app.config['SQLALCHEMY_DATABASE_URI'],
-    poolclass=QueuePool,
-    **app.config['SQLALCHEMY_ENGINE_OPTIONS']
-)
-
-# Initialize extensions
-db = SQLAlchemy(app)
-login_manager = LoginManager(app)
+# Initialize extensions with app
+db.init_app(app)
+login_manager.init_app(app)
 login_manager.login_view = 'login'
-migrate = Migrate(app, db)
+migrate.init_app(app, db)
 
 # Initialize security features
 csrf, limiter, limit_requests = init_security(app)
 
 # Initialize logging
 log_config = LogConfig(app)
+
+# Setup database with fallback
+try:
+    engine = setup_database(app, db)
+    app.logger.info("Database setup complete")
+except Exception as e:
+    app.logger.error(f"Failed to setup database: {str(e)}")
+    # Continue anyway to allow app initialization, but functionality will be limited
+
+# Import models AFTER extensions are initialized
+from models import User, House, ClimbLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats
 
 # Add CloudWatch logging if configured
 if app.config.get('AWS_ACCESS_KEY_ID') and app.config.get('AWS_SECRET_ACCESS_KEY'):
@@ -67,25 +71,13 @@ if app.config.get('AWS_ACCESS_KEY_ID') and app.config.get('AWS_SECRET_ACCESS_KEY
 # Set log level from config
 app.logger.setLevel(app.config['LOG_LEVEL'])
 
-# Database connection management
-def get_db_connection():
-    try:
-        connection = engine.connect()
-        return connection
-    except OperationalError as e:
-        app.logger.error(f"Database connection error: {e}")
-        raise
-    except SQLAlchemyError as e:
-        app.logger.error(f"SQLAlchemy error: {e}")
-        raise
-
 @app.route('/')
 def index():
     houses = House.query.order_by(House.total_points.desc()).all()
     return render_template('index.html', houses=houses)
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("5 per minute")  # Ensure proper format: "number per timeunit"
 def register():
     form = FlaskForm()
     if request.method == 'POST':
@@ -238,25 +230,32 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 def init_db():
-    with app.app_context():
-        db.create_all()
-        # Create houses if they don't exist
-        for house_name in app.config['HOUSES']:
-            if not House.query.filter_by(name=house_name).first():
-                house = House(name=house_name)
-                db.session.add(house)
-        try:
-            db.session.commit()
-        except Exception as e:
-            app.logger.error(f"Error initializing database: {str(e)}")
-            db.session.rollback()
+    """Initialize the database with required initial data"""
+    app.logger.info("Initializing database...")
+    try:
+        with app.app_context():
+            # Create tables
+            db.create_all()
+            app.logger.info("Database tables created")
+            
+            # Initialize houses
+            init_houses()
+            app.logger.info("Houses initialized")
+            
+            return True
+    except OperationalError as e:
+        app.logger.error(f"Database initialization error: {str(e)}")
+        return False
+    except Exception as e:
+        app.logger.error(f"Unexpected error during database initialization: {str(e)}")
+        return False
 
 @app.route('/health')
 def health_check():
     try:
         # Check database connection
         with engine.connect() as connection:
-            connection.execute("SELECT 1")
+            connection.execute(text("SELECT 1"))
         return jsonify({
             "status": "healthy",
             "database": "connected",
@@ -311,8 +310,15 @@ def utility_processor():
 def shutdown_session(exception=None):
     db.session.remove()
 
-# Initialize the database when the app is started
 if __name__ == '__main__':
-    with app.app_context():
-        init_db()
+    # Print diagnostic information
+    app.logger.info(f"Starting application in {os.getenv('FLASK_ENV', 'development')} mode")
+    app.logger.info(f"Using database: {app.config['SQLALCHEMY_DATABASE_URI']}")
+    
+    # Initialize database (but don't fail if it doesn't work)
+    db_initialized = init_db()
+    if not db_initialized:
+        app.logger.warning("Database initialization failed, some functionality may be limited")
+    
+    # Run the app
     app.run(debug=app.config['DEBUG'])

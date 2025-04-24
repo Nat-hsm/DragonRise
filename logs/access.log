@@ -1,14 +1,12 @@
-2025-04-24 22:17:35,165 - app - ERROR - Login error: (sqlite3.OperationalError) no such column: user.password_hash
-[SQL: SELECT user.id AS user_id, user.username AS user_username, user.password_hash AS user_password_hash, user.house AS user_house, user.total_flights AS user_total_flights, user.total_points AS user_total_points, user.join_date AS user_join_date 
-FROM user 
-WHERE user.username = ?
- LIMIT ? OFFSET ?]
-[parameters: ('nat', 1, 0)]
-(Background on this error at: https://sqlalche.me/e/20/e3q8)
-2025-04-24 22:19:02,269 - app - ERROR - Registration error: (sqlite3.OperationalError) no such column: user.password_hash
-[SQL: SELECT user.id AS user_id, user.username AS user_username, user.password_hash AS user_password_hash, user.house AS user_house, user.total_flights AS user_total_flights, user.total_points AS user_total_points, user.join_date AS user_join_date 
-FROM user 
-WHERE user.username = ?
- LIMIT ? OFFSET ?]
-[parameters: ('blue', 1, 0)]
-(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 01:05:30,407 - app - INFO - Houses initialized
+2025-04-25 01:05:30,761 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:05:30,762 - app - INFO - Database connection successful
+2025-04-25 01:05:30,762 - app - INFO - Database setup complete
+2025-04-25 01:05:30,769 - app - INFO - Starting application in development mode
+2025-04-25 01:05:30,769 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:05:30,769 - app - INFO - Initializing database...
+2025-04-25 01:05:30,769 - app - INFO - Database tables created
+2025-04-25 01:05:30,774 - app - INFO - Houses initialized
+2025-04-25 01:06:07,150 - app - INFO - 2025-04-24 17:06:07 - User 1 - Registration - Success
+2025-04-25 01:06:11,867 - app - INFO - 2025-04-24 17:06:11 - User 1 - Login - Success
+2025-04-25 01:06:22,596 - app - ERROR - Climb logging error: __init__() got an unexpected keyword argument 'points'

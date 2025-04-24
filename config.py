@@ -9,11 +9,11 @@ class Config:
     """Base configuration class"""
     
     # Flask Configuration
-    SECRET_KEY = os.getenv('SECRET_KEY')
+    SECRET_KEY = os.getenv('SECRET_KEY', 'dev-key-for-testing')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
     
-    # Database Configuration
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL')
+    # Database Configuration - Default to SQLite for development
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///dragonrise.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_size': 5,
@@ -31,9 +31,9 @@ class Config:
     WTF_CSRF_TIME_LIMIT = 3600  # 1 hour
     
     # Rate Limiting
-    RATELIMIT_DEFAULT = "200 per day;50 per hour"
+    RATELIMIT_DEFAULT = ["200 per day", "50 per hour"]  # List of strings
     RATELIMIT_STORAGE_URL = os.getenv('RATELIMIT_STORAGE_URL', 'memory://')
-    RATELIMIT_STRATEGY = 'fixed-window-elastic-expiry'
+    RATELIMIT_STRATEGY = 'fixed-window'
     
     # AWS Configuration
     AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
@@ -105,12 +105,19 @@ class DevelopmentConfig(Config):
     DEBUG = True
     DEVELOPMENT = True
     
+    # Use SQLite for development by default
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///dragonrise.db')
+    
     # Development-specific settings
     SESSION_COOKIE_SECURE = False
     WTF_CSRF_ENABLED = True
     
-    # Development database settings
-    SQLALCHEMY_TRACK_MODIFICATIONS = True
+    # Development database settings - Smaller pool for SQLite
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 5,
+        'pool_recycle': 1800,
+        'max_overflow': 10
+    }
     
     # Development logging
     LOG_LEVEL = 'DEBUG'
@@ -128,7 +135,7 @@ class TestingConfig(Config):
     DEBUG = True
     
     # Use SQLite for testing
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL')
     
     # Disable CSRF for testing
     WTF_CSRF_ENABLED = False

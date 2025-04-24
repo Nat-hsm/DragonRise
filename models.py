@@ -1,7 +1,7 @@
 from flask_login import UserMixin
 from datetime import datetime
 from sqlalchemy import Index
-from app import db
+from extensions import db  # Import from extensions instead of app
 
 class User(UserMixin, db.Model):
     """User model for authentication and profile management"""
@@ -110,10 +110,21 @@ class ClimbLog(db.Model):
         Index('idx_climb_timestamp', 'timestamp'),
     )
 
-    def __init__(self, user_id, flights):
+    def __init__(self, user_id, flights, points=None, notes=None):
+        from flask import current_app
+        
         self.user_id = user_id
         self.flights = flights
-        self.points = flights * 10
+        
+        if points is not None:
+            self.points = points
+        else:
+            # Use config value if available, fallback to default of 10
+            points_per_flight = current_app.config.get('POINTS_PER_FLIGHT', 10)
+            self.points = flights * points_per_flight
+        
+        if notes:
+            self.notes = notes
 
     @property
     def formatted_timestamp(self):

@@ -12,3 +12,28 @@ WHERE user.username = ?
  LIMIT ? OFFSET ?]
 [parameters: ('blue', 1, 0)]
 (Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:53:13,208 - app - ERROR - Database connection error: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:54:28,272 - app - ERROR - SQLite fallback failed: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:55:43,965 - app - ERROR - Database connection error: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:56:59,120 - app - ERROR - SQLite fallback failed: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:59:09,715 - app - ERROR - Database connection error: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:59:44,941 - app - ERROR - Unexpected database error: Not an executable object: 'SELECT 1'
+2025-04-25 00:59:44,941 - app - ERROR - Failed to setup database: Not an executable object: 'SELECT 1'
+2025-04-25 00:59:45,322 - app - ERROR - Unexpected database error: Not an executable object: 'SELECT 1'
+2025-04-25 00:59:45,322 - app - ERROR - Failed to setup database: Not an executable object: 'SELECT 1'
+2025-04-25 01:06:22,596 - app - ERROR - Climb logging error: __init__() got an unexpected keyword argument 'points'

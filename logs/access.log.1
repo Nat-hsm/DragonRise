@@ -1,0 +1,129 @@
+2025-04-24 22:17:35,165 - app - ERROR - Login error: (sqlite3.OperationalError) no such column: user.password_hash
+[SQL: SELECT user.id AS user_id, user.username AS user_username, user.password_hash AS user_password_hash, user.house AS user_house, user.total_flights AS user_total_flights, user.total_points AS user_total_points, user.join_date AS user_join_date 
+FROM user 
+WHERE user.username = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('nat', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-24 22:19:02,269 - app - ERROR - Registration error: (sqlite3.OperationalError) no such column: user.password_hash
+[SQL: SELECT user.id AS user_id, user.username AS user_username, user.password_hash AS user_password_hash, user.house AS user_house, user.total_flights AS user_total_flights, user.total_points AS user_total_points, user.join_date AS user_join_date 
+FROM user 
+WHERE user.username = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('blue', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:51:57,815 - app - INFO - Starting application in development mode
+2025-04-25 00:51:57,815 - app - INFO - Using database: postgresql://dragonrise_admin:botbut-kokne4-kibXot@dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com:5432/dragonrise
+2025-04-25 00:53:13,208 - app - ERROR - Database connection error: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:53:13,209 - app - WARNING - Attempting to use SQLite as fallback database
+2025-04-25 00:54:28,272 - app - ERROR - SQLite fallback failed: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:54:28,831 - app - INFO - Starting application in development mode
+2025-04-25 00:54:28,831 - app - INFO - Using database: postgresql://dragonrise_admin:botbut-kokne4-kibXot@dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com:5432/dragonrise
+2025-04-25 00:55:43,965 - app - ERROR - Database connection error: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:55:43,968 - app - WARNING - Attempting to use SQLite as fallback database
+2025-04-25 00:56:59,120 - app - ERROR - SQLite fallback failed: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:57:54,575 - app - INFO - Starting application in development mode
+2025-04-25 00:57:54,575 - app - INFO - Using database: postgresql://dragonrise_admin:botbut-kokne4-kibXot@dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com:5432/dragonrise
+2025-04-25 00:59:09,715 - app - ERROR - Database connection error: (psycopg2.OperationalError) connection to server at "dragonrise-cluster.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com" (172.31.96.70), port 5432 failed: Operation timed out
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-25 00:59:09,716 - app - WARNING - Attempting to use SQLite as fallback database
+2025-04-25 00:59:44,938 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 00:59:44,941 - app - ERROR - Unexpected database error: Not an executable object: 'SELECT 1'
+2025-04-25 00:59:44,941 - app - ERROR - Failed to setup database: Not an executable object: 'SELECT 1'
+2025-04-25 00:59:44,948 - app - INFO - Starting application in development mode
+2025-04-25 00:59:44,948 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 00:59:44,948 - app - INFO - Initializing database...
+2025-04-25 00:59:44,956 - app - INFO - Database tables created
+2025-04-25 00:59:44,963 - app - INFO - Houses initialized
+2025-04-25 00:59:45,322 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 00:59:45,322 - app - ERROR - Unexpected database error: Not an executable object: 'SELECT 1'
+2025-04-25 00:59:45,322 - app - ERROR - Failed to setup database: Not an executable object: 'SELECT 1'
+2025-04-25 00:59:45,329 - app - INFO - Starting application in development mode
+2025-04-25 00:59:45,330 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 00:59:45,330 - app - INFO - Initializing database...
+2025-04-25 00:59:45,330 - app - INFO - Database tables created
+2025-04-25 00:59:45,335 - app - INFO - Houses initialized
+2025-04-25 01:01:31,490 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:01:31,491 - app - INFO - Database connection successful
+2025-04-25 01:01:31,498 - app - INFO - Starting application in development mode
+2025-04-25 01:01:31,498 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:01:31,498 - app - INFO - Initializing database...
+2025-04-25 01:01:31,500 - app - INFO - Database tables created
+2025-04-25 01:01:31,549 - app - INFO - Houses initialized
+2025-04-25 01:01:47,798 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:01:47,799 - app - INFO - Database connection successful
+2025-04-25 01:01:47,799 - app - INFO - Database setup complete
+2025-04-25 01:01:47,806 - app - INFO - Starting application in development mode
+2025-04-25 01:01:47,806 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:01:47,806 - app - INFO - Initializing database...
+2025-04-25 01:01:47,807 - app - INFO - Database tables created
+2025-04-25 01:01:47,812 - app - INFO - Houses initialized
+2025-04-25 01:02:12,626 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:02:12,627 - app - INFO - Database connection successful
+2025-04-25 01:02:12,627 - app - INFO - Database setup complete
+2025-04-25 01:02:12,634 - app - INFO - Starting application in development mode
+2025-04-25 01:02:12,634 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:02:12,634 - app - INFO - Initializing database...
+2025-04-25 01:02:12,634 - app - INFO - Database tables created
+2025-04-25 01:02:12,639 - app - INFO - Houses initialized
+2025-04-25 01:02:26,653 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:02:26,654 - app - INFO - Database connection successful
+2025-04-25 01:02:26,654 - app - INFO - Database setup complete
+2025-04-25 01:02:26,661 - app - INFO - Starting application in development mode
+2025-04-25 01:02:26,661 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:02:26,661 - app - INFO - Initializing database...
+2025-04-25 01:02:26,662 - app - INFO - Database tables created
+2025-04-25 01:02:26,666 - app - INFO - Houses initialized
+2025-04-25 01:02:27,024 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:02:27,025 - app - INFO - Database connection successful
+2025-04-25 01:02:27,025 - app - INFO - Database setup complete
+2025-04-25 01:02:27,032 - app - INFO - Starting application in development mode
+2025-04-25 01:02:27,032 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:02:27,032 - app - INFO - Initializing database...
+2025-04-25 01:02:27,033 - app - INFO - Database tables created
+2025-04-25 01:02:27,038 - app - INFO - Houses initialized
+2025-04-25 01:04:34,347 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:04:34,348 - app - INFO - Database connection successful
+2025-04-25 01:04:34,348 - app - INFO - Database setup complete
+2025-04-25 01:04:34,355 - app - INFO - Starting application in development mode
+2025-04-25 01:04:34,355 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:04:34,355 - app - INFO - Initializing database...
+2025-04-25 01:04:34,356 - app - INFO - Database tables created
+2025-04-25 01:04:34,361 - app - INFO - Houses initialized
+2025-04-25 01:04:50,768 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:04:50,769 - app - INFO - Database connection successful
+2025-04-25 01:04:50,769 - app - INFO - Database setup complete
+2025-04-25 01:04:50,777 - app - INFO - Starting application in development mode
+2025-04-25 01:04:50,777 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:04:50,777 - app - INFO - Initializing database...
+2025-04-25 01:04:50,777 - app - INFO - Database tables created
+2025-04-25 01:04:50,783 - app - INFO - Houses initialized
+2025-04-25 01:05:17,682 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:05:17,683 - app - INFO - Database connection successful
+2025-04-25 01:05:17,683 - app - INFO - Database setup complete
+2025-04-25 01:05:17,691 - app - INFO - Starting application in development mode
+2025-04-25 01:05:17,691 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:05:17,691 - app - INFO - Initializing database...
+2025-04-25 01:05:17,691 - app - INFO - Database tables created
+2025-04-25 01:05:17,696 - app - INFO - Houses initialized
+2025-04-25 01:05:30,393 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-04-25 01:05:30,394 - app - INFO - Database connection successful
+2025-04-25 01:05:30,394 - app - INFO - Database setup complete
+2025-04-25 01:05:30,402 - app - INFO - Starting application in development mode
+2025-04-25 01:05:30,402 - app - INFO - Using database: sqlite:///dragonrise.db
+2025-04-25 01:05:30,402 - app - INFO - Initializing database...
+2025-04-25 01:05:30,402 - app - INFO - Database tables created

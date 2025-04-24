@@ -3,25 +3,38 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-from flask import request, abort
+from flask import request, abort, jsonify, session
 import os
 
 def init_security(app):
     # Initialize CSRF protection
     csrf = CSRFProtect(app)
     
-    # Initialize rate limiter
+    # Add a route to expose the CSRF token
+    @app.route('/csrf-token', methods=['GET'])
+    def get_csrf_token():
+        # Generate a new token
+        csrf_token = csrf.generate_csrf()
+        return jsonify({'csrf_token': csrf_token})
+    
+    # Process rate limit configuration - Fix for the parser error
+    default_limits = app.config.get('RATELIMIT_DEFAULT', ["200 per day", "50 per hour"])
+    if isinstance(default_limits, str):
+        default_limits = default_limits.split(';')
+    
+    # Initialize rate limiter with app configuration values
     limiter = Limiter(
         app,
         key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"],
-        storage_uri="memory://"
+        default_limits=default_limits,
+        storage_uri=app.config.get('RATELIMIT_STORAGE_URL', "memory://"),
+        strategy="fixed-window"  # This is a valid strategy
     )
     
-    # Add rate limit decorators
+    # Add rate limit decorators with proper format
     def limit_requests(f):
         @wraps(f)
-        @limiter.limit("5 per minute")
+        @limiter.limit("5 per minute")  # Ensure this is a proper rate limit string
         def decorated_function(*args, **kwargs):
             return f(*args, **kwargs)
         return decorated_function
