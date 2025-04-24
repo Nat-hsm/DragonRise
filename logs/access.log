@@ -1,0 +1,14 @@
+2025-04-24 22:17:35,165 - app - ERROR - Login error: (sqlite3.OperationalError) no such column: user.password_hash
+[SQL: SELECT user.id AS user_id, user.username AS user_username, user.password_hash AS user_password_hash, user.house AS user_house, user.total_flights AS user_total_flights, user.total_points AS user_total_points, user.join_date AS user_join_date 
+FROM user 
+WHERE user.username = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('nat', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-24 22:19:02,269 - app - ERROR - Registration error: (sqlite3.OperationalError) no such column: user.password_hash
+[SQL: SELECT user.id AS user_id, user.username AS user_username, user.password_hash AS user_password_hash, user.house AS user_house, user.total_flights AS user_total_flights, user.total_points AS user_total_points, user.join_date AS user_join_date 
+FROM user 
+WHERE user.username = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('blue', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

@@ -21,6 +21,7 @@
         <div class="stats-card">
             <h3>Log Your Climb</h3>
             <form action="{{ url_for('log_climb') }}" method="post">
+                {{ form.csrf_token }}  <!-- Add this line -->
                 <div class="mb-3">
                     <label for="flights" class="form-label">Number of Flights</label>
                     <input type="number" class="form-control" id="flights" name="flights" required min="1">
@@ -28,7 +29,7 @@
                 <button type="submit" class="btn btn-primary w-100">Log Climb</button>
             </form>
         </div>
-    </div>
+
 
     <div class="col-md-8">
         <div class="stats-card">
