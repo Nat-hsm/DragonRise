@@ -17,6 +17,7 @@ class User(UserMixin, db.Model):
     join_date = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
     is_active = db.Column(db.Boolean, default=True)
+    is_admin = db.Column(db.Boolean, default=False)  # Add this line
     
     # Relationships
     logs = db.relationship('ClimbLog', backref='user', lazy=True,
@@ -29,10 +30,11 @@ class User(UserMixin, db.Model):
         Index('idx_user_house_points', 'house', 'total_points'),
     )
 
-    def __init__(self, username, house, email=None):
+    def __init__(self, username, house, email=None, is_admin=False):
         self.username = username
         self.house = house
         self.email = email
+        self.is_admin = is_admin
 
     def set_password(self, password):
         """Set hashed password"""
@@ -197,3 +199,21 @@ def get_user_stats(user_id):
         'last_climb': ClimbLog.query.filter_by(user_id=user_id)
             .order_by(ClimbLog.timestamp.desc()).first()
     }
+
+
+def init_admin():
+    """Initialize admin user"""
+    from utils.security import PasswordManager
+    
+    admin = User.query.filter_by(username='Admin').first()
+    if not admin:
+        admin = User(username='Admin', house='Admin', is_admin=True)
+        admin.set_password('123')
+        db.session.add(admin)
+        try:
+            db.session.commit()
+            return True
+        except Exception as e:
+            db.session.rollback()
+            raise e
+    return False
