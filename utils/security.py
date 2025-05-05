@@ -3,7 +3,8 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-from flask import request, abort, jsonify, session
+from flask import request, abort, jsonify, session, flash, redirect, url_for
+from flask_login import current_user
 import os
 
 def init_security(app):
@@ -34,7 +35,7 @@ def init_security(app):
     # Add rate limit decorators with proper format
     def limit_requests(f):
         @wraps(f)
-        @limiter.limit("5 per minute")  # Ensure this is a proper rate limit string
+        @limiter.limit("20 per minute")  # Updated from 5 to 20
         def decorated_function(*args, **kwargs):
             return f(*args, **kwargs)
         return decorated_function
@@ -57,4 +58,13 @@ def require_api_key(f):
         if api_key and api_key == os.environ.get('API_KEY'):
             return f(*args, **kwargs)
         abort(401)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            flash('Admin access required.', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
     return decorated_function

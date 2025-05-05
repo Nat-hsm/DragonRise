@@ -40,3 +40,7 @@ WHERE user.username = ?
 2025-04-25 00:59:45,322 - app - ERROR - Unexpected database error: Not an executable object: 'SELECT 1'
 2025-04-25 00:59:45,322 - app - ERROR - Failed to setup database: Not an executable object: 'SELECT 1'
 2025-04-25 01:06:22,596 - app - ERROR - Climb logging error: __init__() got an unexpected keyword argument 'points'
+2025-05-05 15:41:01,230 - app - ERROR - Unexpected error during database initialization: name 'init_admin' is not defined
+2025-05-05 15:41:01,230 - app - WARNING - Database initialization failed, some functionality may be limited
+2025-05-05 15:41:01,603 - app - ERROR - Unexpected error during database initialization: name 'init_admin' is not defined
+2025-05-05 15:41:01,603 - app - WARNING - Database initialization failed, some functionality may be limited

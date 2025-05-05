@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import os
 import logging
 import watchtower
-from utils.security import init_security, PasswordManager, require_api_key
+from utils.security import init_security, PasswordManager, require_api_key, admin_required
 from utils.logging_config import LogConfig, log_activity
 from utils.database import setup_database
 from config import get_config, validate_config
@@ -56,7 +56,7 @@ except Exception as e:
     # Continue anyway to allow app initialization, but functionality will be limited
 
 # Import models AFTER extensions are initialized
-from models import User, House, ClimbLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats
+from models import User, House, ClimbLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
 
 # Add CloudWatch logging if configured
 if app.config.get('AWS_ACCESS_KEY_ID') and app.config.get('AWS_SECRET_ACCESS_KEY'):
@@ -77,7 +77,7 @@ def index():
     return render_template('index.html', houses=houses)
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")  # Ensure proper format: "number per timeunit"
+@limiter.limit("20 per minute")  # Updated from 5 to 20
 def register():
     form = FlaskForm()
     if request.method == 'POST':
@@ -123,7 +123,7 @@ def register():
     return render_template('register.html', form=form)
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("20 per minute")  # Updated from 5 to 20
 def login():
     form = FlaskForm()
     if request.method == 'POST':
@@ -132,7 +132,7 @@ def login():
                 username = request.form['username'].strip()
                 password = request.form['password']
 
-                user = User.query.filter_by(username=username).first()
+                user = User.query.filter(User.username.ilike(username)).first()
                 if user and user.check_password(password):
                     login_user(user)
                     user.last_login = datetime.utcnow()  # Update last login time
@@ -140,7 +140,12 @@ def login():
                     log_activity(app, user.id, 'Login', 'Success')
                     flash('Welcome back, Dragon Climber!', 'success')
                     next_page = request.args.get('next')
-                    return redirect(next_page or url_for('dashboard'))
+                    
+                    # Redirect admin to admin dashboard
+                    if user.is_admin:
+                        return redirect(next_page or url_for('admin_dashboard'))
+                    else:
+                        return redirect(next_page or url_for('dashboard'))
 
                 log_activity(app, None, 'Login Failed', 'Invalid Credentials')
                 flash('Invalid username or password', 'danger')
@@ -225,6 +230,29 @@ def house_points():
         'members': house.member_count
     } for house in houses])
 
+@app.route('/admin')
+@login_required
+@admin_required
+def admin_dashboard():
+    # Get all non-admin users ranked by points
+    leaderboard = User.query.filter_by(is_admin=False).order_by(User.total_points.desc()).all()
+    houses = House.query.order_by(House.total_points.desc()).all()
+    
+    # Get system statistics
+    stats = {
+        'total_users': User.query.filter_by(is_admin=False).count(),
+        'total_flights': db.session.query(db.func.sum(User.total_flights)).filter(User.is_admin==False).scalar() or 0,
+        'total_logs': ClimbLog.query.count(),
+        'app_version': '1.0',
+    }
+    
+    return render_template(
+        'admin_dashboard.html', 
+        leaderboard=leaderboard, 
+        houses=houses,
+        stats=stats
+    )
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -241,6 +269,10 @@ def init_db():
             # Initialize houses
             init_houses()
             app.logger.info("Houses initialized")
+            
+            # Initialize admin user
+            init_admin()
+            app.logger.info("Admin user initialized")
             
             return True
     except OperationalError as e:
