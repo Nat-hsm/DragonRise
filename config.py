@@ -12,6 +12,10 @@ class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-key-for-testing')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
     
+    # File Upload Configuration
+    UPLOAD_FOLDER = 'static/uploads'
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+    
     # Database Configuration - Default to SQLite for development
     SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///dragonrise.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -39,11 +43,6 @@ class Config:
     AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
     AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
-    
-    # Logging Configuration
-    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
-    CLOUDWATCH_LOG_GROUP = 'DragonRise'
-    CLOUDWATCH_LOG_STREAM = 'application-logs'
     
     # Application Configuration
     HOUSES = ['Black', 'Blue', 'Green', 'White', 'Gold', 'Purple']

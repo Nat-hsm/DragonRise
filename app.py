@@ -5,14 +5,16 @@ from flask_wtf import FlaskForm
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.sql import text
 from sqlalchemy import create_engine, text
-from datetime import datetime
+from datetime import datetime, timedelta, timezone  # Add timezone import
 from dotenv import load_dotenv
 import os
 import logging
-import watchtower
+from werkzeug.utils import secure_filename
+import re
 from utils.security import init_security, PasswordManager, require_api_key, admin_required
 from utils.logging_config import LogConfig, log_activity
 from utils.database import setup_database
+from utils.image_analyzer import ImageAnalyzer
 from config import get_config, validate_config
 from extensions import db, login_manager, migrate
 
@@ -57,16 +59,6 @@ except Exception as e:
 
 # Import models AFTER extensions are initialized
 from models import User, House, ClimbLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
-
-# Add CloudWatch logging if configured
-if app.config.get('AWS_ACCESS_KEY_ID') and app.config.get('AWS_SECRET_ACCESS_KEY'):
-    handler = watchtower.CloudWatchLogHandler(
-        log_group=app.config['CLOUDWATCH_LOG_GROUP'],
-        stream_name=app.config['CLOUDWATCH_LOG_STREAM'],
-        create_log_group=True
-    )
-    app.logger.addHandler(handler)
-    logging.getLogger('sqlalchemy.engine').addHandler(handler)
 
 # Set log level from config
 app.logger.setLevel(app.config['LOG_LEVEL'])
@@ -135,7 +127,7 @@ def login():
                 user = User.query.filter(User.username.ilike(username)).first()
                 if user and user.check_password(password):
                     login_user(user)
-                    user.last_login = datetime.utcnow()  # Update last login time
+                    user.last_login = datetime.now(timezone.utc)  # Update last login time
                     db.session.commit()
                     log_activity(app, user.id, 'Login', 'Success')
                     flash('Welcome back, Dragon Climber!', 'success')
@@ -255,7 +247,7 @@ def admin_dashboard():
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 def init_db():
     """Initialize the database with required initial data"""
@@ -291,7 +283,7 @@ def health_check():
         return jsonify({
             "status": "healthy",
             "database": "connected",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }), 200
     except Exception as e:
         app.logger.error(f"Health check failed: {e}")
@@ -299,7 +291,7 @@ def health_check():
             "status": "unhealthy",
             "database": "disconnected",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }), 500
 
 @app.errorhandler(OperationalError)
@@ -341,6 +333,193 @@ def utility_processor():
 @app.teardown_appcontext
 def shutdown_session(exception=None):
     db.session.remove()
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+@app.route('/upload', methods=['GET'])
+@login_required
+def upload_form():
+    # Instead of rendering upload.html, redirect to dashboard
+    return redirect(url_for('dashboard'))
+
+@app.route('/upload-screenshot', methods=['POST'])
+@login_required
+def upload_screenshot():
+    form = FlaskForm()
+    if form.validate_on_submit():
+        try:
+            # Check if a file was uploaded
+            if 'screenshot' not in request.files:
+                flash('No file selected', 'danger')
+                return redirect(url_for('dashboard'))  # Changed from upload_form
+                
+            file = request.files['screenshot']
+            
+            # Check if filename is empty
+            if file.filename == '':
+                flash('No file selected', 'danger')
+                return redirect(url_for('dashboard'))  # Changed from upload_form
+                
+            if file and allowed_file(file.filename):
+                # Create uploads directory if it doesn't exist
+                os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+                
+                # Secure the filename and save file
+                filename = secure_filename(file.filename)
+                timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+                unique_filename = f"{current_user.id}_{timestamp}_{filename}"
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+                file.save(filepath)
+                
+                # Create image analyzer and process the image
+                image_analyzer = ImageAnalyzer()
+                file.seek(0)  # Reset file pointer to beginning
+                result = image_analyzer.analyze_image(file)
+                
+                if result.get('success'):
+                    flights = result.get('flights')
+                    timestamp_str = result.get('timestamp')
+                    
+                    if flights is None:
+                        flash('Could not determine flights from image. Please enter manually.', 'warning')
+                        return render_template('manual_entry.html', 
+                                             form=form, 
+                                             image_path=filepath,
+                                             timestamp=timestamp_str)
+                    
+                    # If timestamp wasn't detected, use current time
+                    activity_time = None
+                    if timestamp_str:
+                        try:
+                            # Try to parse the detected timestamp (flexible format)
+                            activity_time = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M')
+                        except ValueError:
+                            # Try alternative formats or set to current time
+                            formats = [
+                                '%Y-%m-%d %H:%M:%S',
+                                '%m/%d/%Y %H:%M',
+                                '%d-%m-%Y %H:%M'
+                            ]
+                            for fmt in formats:
+                                try:
+                                    activity_time = datetime.strptime(timestamp_str, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                    
+                    # If parsing fails or timestamp is missing, use current time
+                    if not activity_time:
+                        activity_time = datetime.now(timezone.utc)
+                    
+                    # Validate the flights count
+                    if flights <= 0 or flights > app.config['MAX_FLIGHTS_PER_LOG']:
+                        flash(f'Invalid number of flights detected: {flights}. Please enter manually.', 'warning')
+                        return render_template('manual_entry.html', 
+                                             form=form, 
+                                             image_path=filepath,
+                                             timestamp=activity_time.strftime('%Y-%m-%d %H:%M'))
+                    
+                    # Create notes with source information
+                    notes = f"Auto-detected from screenshot. Timestamp: {activity_time.strftime('%Y-%m-%d %H:%M')}"
+                    
+                    # Calculate points
+                    points = flights * app.config['POINTS_PER_FLIGHT']
+                    
+                    # Create climb log
+                    log = ClimbLog(user_id=current_user.id, flights=flights, points=points, notes=notes)
+                    
+                    # Update user stats
+                    current_user.total_flights += flights
+                    current_user.total_points += points
+                    
+                    # Update house points
+                    house = House.query.filter_by(name=current_user.house).first()
+                    if not house:
+                        raise ValueError('Invalid house association')
+                    
+                    house.total_points += points
+                    house.total_flights += flights
+                    
+                    db.session.add(log)
+                    db.session.commit()
+                    
+                    log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights')
+                    flash(f'Success! Added {flights} flights ({points} points) to your account!', 'success')
+                    return redirect(url_for('dashboard'))
+                    
+                else:
+                    # Analysis failed, show manual entry form
+                    flash('Could not analyze the image. Please enter the details manually.', 'warning')
+                    return render_template('manual_entry.html', 
+                                         form=form, 
+                                         image_path=filepath,
+                                         error=result.get('error'))
+            else:
+                flash('Invalid file type. Please upload a JPG, JPEG or PNG file.', 'danger')
+                return redirect(url_for('dashboard'))  # Changed from upload_form
+                
+        except Exception as e:
+            app.logger.error(f"Screenshot upload error: {str(e)}")
+            flash('An error occurred while processing your image', 'danger')
+            return redirect(url_for('dashboard'))  # Changed from upload_form
+    
+    return redirect(url_for('dashboard'))  # Changed from upload_form
+
+@app.route('/manual-entry', methods=['POST'])
+@login_required
+def manual_entry():
+    form = FlaskForm()
+    if form.validate_on_submit():
+        try:
+            flights = int(request.form['flights'])
+            timestamp_str = request.form.get('timestamp')
+            
+            if flights <= 0 or flights > app.config['MAX_FLIGHTS_PER_LOG']:
+                flash(f'Please enter a valid number of flights (1-{app.config["MAX_FLIGHTS_PER_LOG"]})', 'danger')
+                return redirect(url_for('upload_form'))
+            
+            # Parse timestamp or use current time
+            try:
+                if timestamp_str:
+                    activity_time = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M')
+                else:
+                    activity_time = datetime.now(timezone.utc)
+            except ValueError:
+                activity_time = datetime.now(timezone.utc)
+            
+            # Create notes
+            notes = f"Manually entered from screenshot. Timestamp: {activity_time.strftime('%Y-%m-%d %H:%M')}"
+            
+            # Calculate points
+            points = flights * app.config['POINTS_PER_FLIGHT']
+            
+            # Create climb log and update stats (same as auto-detection)
+            log = ClimbLog(user_id=current_user.id, flights=flights, points=points, notes=notes)
+            
+            current_user.total_flights += flights
+            current_user.total_points += points
+            
+            house = House.query.filter_by(name=current_user.house).first()
+            if house:
+                house.total_points += points
+                house.total_flights += flights
+            
+            db.session.add(log)
+            db.session.commit()
+            
+            log_activity(app, current_user.id, 'Manual Climb Logged', f'{flights} flights')
+            flash(f'Success! Added {flights} flights ({points} points) to your account!', 'success')
+            
+        except ValueError:
+            flash('Please enter a valid number of flights', 'danger')
+        except Exception as e:
+            app.logger.error(f"Manual entry error: {str(e)}")
+            flash('An error occurred while logging your climb', 'danger')
+            db.session.rollback()
+            
+    return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     # Print diagnostic information
