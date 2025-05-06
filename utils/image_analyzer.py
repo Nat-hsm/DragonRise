@@ -233,3 +233,176 @@ class ImageAnalyzer:
                 'error': "Could not process image with AWS Bedrock. Please enter details manually.",
                 'fallback_required': True
             }
+
+    def analyze_standing_image(self, image_file):
+        """
+        Analyze a health app screenshot to extract standing time
+        
+        Args:
+            image_file: The uploaded image file
+        
+        Returns:
+            dict: Analysis results with minutes and timestamp
+        """
+        try:
+            # Read and resize image to reduce size
+            image = Image.open(image_file)
+            
+            # Resize image if it's too large (keep aspect ratio)
+            max_size = 1600
+            if max(image.size) > max_size:
+                ratio = max_size / max(image.size)
+                new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
+                image = image.resize(new_size, Image.LANCZOS)
+            
+            # Convert to base64
+            buffered = BytesIO()
+            image.save(buffered, format="JPEG")
+            image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            
+            # Prepare request for Claude, with standing-specific prompt
+            request_body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 1000,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": image_base64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": "This is a screenshot from a health tracking app showing standing time. Extract the exact number of minutes stood and the timestamp when this activity occurred. Reply in JSON format with two fields: 'minutes' (integer) and 'timestamp' (string in format YYYY-MM-DD HH:MM). If you can't determine one of these values, set it to null."
+                            }
+                        ]
+                    }
+                ],
+                "temperature": 0.2
+            }
+            
+            # Rest of the method is similar to analyze_image
+            # Get available models
+            available_models = []
+            try:
+                if self.bedrock:
+                    models_response = self.bedrock.list_foundation_models()
+                    available_models = [model['modelId'] for model in models_response['modelSummaries']]
+                    self.logger.info(f"Found {len(available_models)} available Bedrock models")
+            except Exception as e:
+                self.logger.error(f"Error listing Bedrock models: {str(e)}")
+            
+            # Use same model selection logic
+            preferred_model = "anthropic.claude-3-7-sonnet-20250219-v1:0"
+            if preferred_model in available_models:
+                models_to_try = [preferred_model]
+            else:
+                models_to_try = []
+                claude_models = [m for m in available_models if 'claude' in m.lower()]
+                if claude_models:
+                    models_to_try = claude_models[:1]
+            
+            if not models_to_try:
+                models_to_try = [preferred_model]
+            
+            response = None
+            model_used = None
+            
+            # Process with selected model
+            for model in models_to_try:
+                try:
+                    current_body = request_body.copy()
+                    
+                    # Format requests for non-Claude models
+                    if not model.startswith('anthropic.'):
+                        # Similar logic as in analyze_image but for standing time
+                        if 'image' in model.lower() or 'tg1' in model.lower():
+                            prompt_text = "This is a screenshot from a health tracking app showing standing time. Extract the exact number of minutes stood and the timestamp when this activity occurred. Reply in JSON format with two fields: 'minutes' (integer) and 'timestamp' (string in format YYYY-MM-DD HH:MM)."
+                            
+                            current_body = {
+                                "taskType": "TEXT_IMAGE_UNDERSTANDING",
+                                "textImageUnderstandingConfig": {
+                                    "inputText": prompt_text,
+                                    "outputFormat": {"jsonFormat": {"structure": {"minutes": "integer", "timestamp": "string"}}},
+                                },
+                                "imageData": [
+                                    {"image": base64.b64encode(buffered.getvalue()).decode('utf-8')}
+                                ]
+                            }
+                        else:
+                            prompt_text = "This is a screenshot from a health tracking app showing standing time. Extract the exact number of minutes stood and the timestamp when this activity occurred. Reply in JSON format with two fields: 'minutes' (integer) and 'timestamp' (string in format YYYY-MM-DD HH:MM)."
+                            
+                            current_body = {
+                                "inputText": prompt_text,
+                                "textGenerationConfig": {
+                                    "maxTokenCount": 500,
+                                    "temperature": 0.2,
+                                    "topP": 0.9
+                                }
+                            }
+                    
+                    response = self.client.invoke_model(
+                        modelId="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+                        body=json.dumps(current_body)
+                    )
+                    model_used = model
+                    self.logger.info(f"Successfully used model: {model}")
+                    break
+                except Exception as model_error:
+                    self.logger.warning(f"Error with model {model}: {str(model_error)}")
+                    continue
+            
+            if not response:
+                return {
+                    'success': False,
+                    'error': "Could not access any AWS Bedrock model. Please enter details manually.",
+                    'fallback_required': True
+                }
+            
+            # Parse response and extract data
+            response_body = json.loads(response['body'].read())
+            
+            if model_used.startswith('anthropic.'):
+                text_content = response_body['content'][0]['text']
+            else:
+                text_content = response_body.get('text', response_body.get('outputs', [{'text': ''}])[0].get('text', ''))
+            
+            try:
+                import re
+                json_match = re.search(r'(\{.*?\})', text_content, re.DOTALL)
+                if json_match:
+                    result_json = json.loads(json_match.group(1))
+                else:
+                    result_json = json.loads(text_content)
+                
+                minutes = int(result_json.get('minutes', 0)) if result_json.get('minutes') else None
+                timestamp = result_json.get('timestamp')
+                
+                return {
+                    'success': True,
+                    'minutes': minutes,
+                    'timestamp': timestamp,
+                    'raw_response': text_content,
+                    'model_used': model_used
+                }
+            
+            except (json.JSONDecodeError, ValueError) as e:
+                self.logger.error(f"Error parsing Bedrock response: {e}")
+                return {
+                    'success': False,
+                    'error': 'Could not parse response',
+                    'raw_response': text_content
+                }
+        
+        except Exception as e:
+            self.logger.error(f"AWS Bedrock error: {str(e)}")
+            return {
+                'success': False,
+                'error': "Could not process image with AWS Bedrock. Please enter details manually.",
+                'fallback_required': True
+            }

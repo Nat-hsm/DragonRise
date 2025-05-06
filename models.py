@@ -260,7 +260,7 @@ def init_admin():
     """Initialize admin user"""
     from utils.security import PasswordManager
     
-    admin = User.query.filter_by(username='Admin').first()
+    admin = User.query.filter(User.username.ilike('Admin')).first()
     if not admin:
         admin = User(username='Admin', house='Admin', is_admin=True)
         admin.set_password('123')

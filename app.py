@@ -83,7 +83,7 @@ def register():
                 flash('All fields are required', 'danger')
                 return redirect(url_for('register'))
 
-            if User.query.filter_by(username=username).first():
+            if User.query.filter(User.username.ilike(username)).first():
                 flash('Username already exists', 'danger')
                 log_activity(app, None, 'Registration Failed', 'Username Exists')
                 return redirect(url_for('register'))
@@ -409,6 +409,69 @@ def upload_screenshot():
     
     return redirect(url_for('dashboard'))
 
+@app.route('/upload-standing-screenshot', methods=['POST'])
+@login_required
+def upload_standing_screenshot():
+    try:
+        # Check if a file was uploaded
+        if 'screenshot' not in request.files:
+            flash('No file selected', 'danger')
+            return redirect(url_for('standing_dashboard'))
+            
+        file = request.files['screenshot']
+        
+        # Check if filename is empty
+        if file.filename == '':
+            flash('No file selected', 'danger')
+            return redirect(url_for('standing_dashboard'))
+            
+        if file and allowed_file(file.filename):
+            # Create uploads directory if it doesn't exist
+            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+            
+            # Secure the filename and save file
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+            unique_filename = f"{current_user.id}_standing_{timestamp}_{filename}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            file.save(filepath)
+            
+            # Create image analyzer and process the image
+            image_analyzer = ImageAnalyzer()
+            file.seek(0)  # Reset file pointer to beginning
+            result = image_analyzer.analyze_standing_image(file)
+            
+            if result.get('success'):
+                minutes = result.get('minutes')
+                timestamp_str = result.get('timestamp')
+                
+                # Log the standing time
+                log = StandingLog(user_id=current_user.id, minutes=minutes, 
+                                 notes=f"Automatically detected from screenshot")
+                
+                # Update user stats
+                current_user.update_standing_time(minutes)
+                
+                # Update house points
+                house = House.query.filter_by(name=current_user.house).first()
+                if house:
+                    house.update_standing_time(minutes)
+                
+                db.session.add(log)
+                db.session.commit()
+                
+                log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{minutes} minutes')
+                flash(f'Successfully processed screenshot! Added {minutes} points for {minutes} minutes of standing.', 'success')
+            else:
+                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
+        else:
+            flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
+    except Exception as e:
+        app.logger.error(f'Screenshot upload error: {str(e)}')
+        flash('An error occurred while processing your screenshot', 'danger')
+    
+    return redirect(url_for('standing_dashboard'))
+
 @app.route('/api/house_points')
 @require_api_key
 def house_points():
@@ -504,3 +567,22 @@ def shutdown_session(exception=None):
 
 if __name__ == '__main__':
     app.run(debug=True)
+
+# Open a Python shell in your project directory
+# Then run:
+from app import app, db
+from models import User
+from utils.security import PasswordManager
+
+with app.app_context():
+    # Check if admin exists
+    admin = User.query.filter(User.username.ilike('Admin')).first()
+    print(f"Admin exists: {admin is not None}")
+    
+    if not admin:
+        # Create new admin
+        admin = User(username='Admin', house='Admin', is_admin=True)
+        admin.set_password('123')
+        db.session.add(admin)
+        db.session.commit()
+        print("Admin user created")
