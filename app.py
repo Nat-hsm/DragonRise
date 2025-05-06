@@ -31,6 +31,10 @@ logging.basicConfig(level=logging.INFO)
 config = get_config()
 app.config.from_object(config)
 
+# Set allowed file extensions for uploads
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
+app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static', 'uploads')
+
 # Validate configuration
 validate_config(config)
 
