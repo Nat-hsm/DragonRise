@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="stats-card">
+            <h2>Welcome, {{ current_user.username }}</h2>
+            <p class="text-muted">{{ current_user.house }} House Member</p>
+            <hr>
+            <div class="row">
+                <div class="col-6">
+                    <h4>Standing Time</h4>
+                    <div class="points-display">{{ current_user.total_standing_time }}</div>
+                    <p class="text-muted">minutes</p>
+                </div>
+                <div class="col-6">
+                    <h4>Total Points</h4>
+                    <div class="points-display">{{ current_user.total_points }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-card">
+            <h3>Log Your Standing Time</h3>
+            <form action="{{ url_for('log_standing') }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-3">
+                    <label for="minutes" class="form-label">Minutes Stood</label>
+                    <input type="number" class="form-control" id="minutes" name="minutes" required min="1">
+                </div>
+                <div class="mb-3">
+                    <label for="notes" class="form-label">Notes (Optional)</label>
+                    <textarea class="form-control" id="notes" name="notes" rows="2"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Log Standing Time</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="stats-card">
+            <h3>House Rankings</h3>
+            <div class="row">
+                {% for house in houses %}
+                <div class="col-md-6 mb-3">
+                    <div class="house-card {{ house.name }}">
+                        <h4>{{ house.name }} House</h4>
+                        <div class="points-display">{{ house.total_points }}</div>
+                        <p>Standing Time: {{ house.total_standing_time }} minutes</p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="stats-card">
+            <h3>Recent Standing Logs</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Minutes</th>
+                        <th>Points</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in recent_logs %}
+                    <tr>
+                        <td>{{ log.formatted_timestamp }}</td>
+                        <td>{{ log.minutes }}</td>
+                        <td>{{ log.points }}</td>
+                        <td>{{ log.notes or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not recent_logs %}
+                    <tr>
+                        <td colspan="4" class="text-center">No standing time logged yet</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

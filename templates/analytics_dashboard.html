@@ -1,0 +1,560 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-md-12 mb-4">
+        <div class="stats-card">
+            <h2>DragonRise Analytics</h2>
+            <p class="text-muted">Visualize house performance data</p>
+            
+            <!-- Chart Type Selection -->
+            <div class="btn-group mb-4" role="group">
+                <button type="button" class="btn btn-primary active" id="barChartBtn">Bar Charts</button>
+                <button type="button" class="btn btn-outline-primary" id="pieChartBtn">Pie Charts</button>
+            </div>
+            
+            <!-- Data Type Selection -->
+            <div class="btn-group mb-4 ms-3" role="group">
+                <button type="button" class="btn btn-success active" id="climbDataBtn">Climbing</button>
+                <button type="button" class="btn btn-outline-success" id="standingDataBtn">Standing</button>
+                <button type="button" class="btn btn-outline-success" id="combinedDataBtn">Combined</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bar Charts Section -->
+<div id="barChartsSection">
+    <div class="row">
+        <!-- Climbing Bar Chart -->
+        <div class="col-md-12 mb-4 chart-container" id="climbBarChartContainer">
+            <div class="stats-card">
+                <h3>Climbing Data by House</h3>
+                <canvas id="climbBarChart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <!-- Standing Bar Chart -->
+        <div class="col-md-12 mb-4 chart-container" id="standingBarChartContainer" style="display: none;">
+            <div class="stats-card">
+                <h3>Standing Time by House</h3>
+                <canvas id="standingBarChart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <!-- Combined Bar Chart -->
+        <div class="col-md-12 mb-4 chart-container" id="combinedBarChartContainer" style="display: none;">
+            <div class="stats-card">
+                <h3>Combined Performance by House</h3>
+                <canvas id="combinedBarChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pie Charts Section -->
+<div id="pieChartsSection" style="display: none;">
+    <div class="row">
+        <!-- Climbing Pie Chart -->
+        <div class="col-md-12 mb-4 chart-container" id="climbPieChartContainer">
+            <div class="stats-card">
+                <h3>Climbing Points Distribution</h3>
+                <canvas id="climbPieChart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <!-- Standing Pie Chart -->
+        <div class="col-md-12 mb-4 chart-container" id="standingPieChartContainer" style="display: none;">
+            <div class="stats-card">
+                <h3>Standing Time Distribution</h3>
+                <canvas id="standingPieChart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <!-- Combined Pie Chart -->
+        <div class="col-md-12 mb-4 chart-container" id="combinedPieChartContainer" style="display: none;">
+            <div class="stats-card">
+                <h3>Total Points Distribution</h3>
+                <canvas id="combinedPieChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="stats-card">
+            <h3>House Performance Summary</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>House</th>
+                        <th>Total Flights</th>
+                        <th>Climbing Points</th>
+                        <th>Standing Time (min)</th>
+                        <th>Standing Points</th>
+                        <th>Total Points</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for house in houses %}
+                    <tr>
+                        <td>
+                            <span class="house-badge {{ house.name }}">{{ house.name }}</span>
+                        </td>
+                        <td>{{ house.total_flights }}</td>
+                        <td>{{ house.total_flights * 10 }}</td>
+                        <td>{{ house.total_standing_time }}</td>
+                        <td>{{ house.total_standing_time }}</td>
+                        <td>{{ house.total_points }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    // Chart data from server
+    const houseNames = {{ house_names|tojson }};
+    const houseColors = {{ house_colors|tojson }};
+    const climbingData = {{ climbing_data|tojson }};
+    const standingData = {{ standing_data|tojson }};
+    const combinedData = {{ combined_data|tojson }};
+    
+    // Initialize charts
+    let climbBarChart, standingBarChart, combinedBarChart;
+    let climbPieChart, standingPieChart, combinedPieChart;
+    
+    // Create bar charts
+    function createBarCharts() {
+        // Climbing bar chart
+        const climbCtx = document.getElementById('climbBarChart').getContext('2d');
+        climbBarChart = new Chart(climbCtx, {
+            type: 'bar',
+            data: {
+                labels: houseNames,
+                datasets: [{
+                    label: 'Points',
+                    data: climbingData.points,
+                    backgroundColor: houseColors,
+                    borderColor: houseColors.map(color => color.replace('0.7', '1')),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Points'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Houses'
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Climbing Points by House',
+                        font: {
+                            size: 18
+                        }
+                    },
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+        
+        // Standing bar chart
+        const standingCtx = document.getElementById('standingBarChart').getContext('2d');
+        standingBarChart = new Chart(standingCtx, {
+            type: 'bar',
+            data: {
+                labels: houseNames,
+                datasets: [{
+                    label: 'Points',
+                    data: standingData.points,
+                    backgroundColor: houseColors,
+                    borderColor: houseColors.map(color => color.replace('0.7', '1')),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Points'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Houses'
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Standing Points by House',
+                        font: {
+                            size: 18
+                        }
+                    },
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+        
+        // Combined bar chart
+        const combinedCtx = document.getElementById('combinedBarChart').getContext('2d');
+        combinedBarChart = new Chart(combinedCtx, {
+            type: 'bar',
+            data: {
+                labels: houseNames,
+                datasets: [{
+                    label: 'Climbing Points',
+                    data: combinedData.climbing_points,
+                    backgroundColor: houseColors.map(color => color.replace('0.7', '0.9')),
+                    borderColor: houseColors,
+                    borderWidth: 1
+                }, {
+                    label: 'Standing Points',
+                    data: combinedData.standing_points,
+                    backgroundColor: houseColors.map(color => color.replace('0.7', '0.4')),
+                    borderColor: houseColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        stacked: true,
+                        title: {
+                            display: true,
+                            text: 'Points'
+                        }
+                    },
+                    x: {
+                        stacked: true,
+                        title: {
+                            display: true,
+                            text: 'Houses'
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Combined Points by House',
+                        font: {
+                            size: 18
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    // Create pie charts
+    function createPieCharts() {
+        // Climbing pie chart
+        const climbPieCtx = document.getElementById('climbPieChart').getContext('2d');
+        climbPieChart = new Chart(climbPieCtx, {
+            type: 'pie',
+            data: {
+                labels: houseNames,
+                datasets: [{
+                    data: climbingData.points,
+                    backgroundColor: houseColors,
+                    borderColor: '#fff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Climbing Points Distribution',
+                        font: {
+                            size: 18
+                        }
+                    },
+                    legend: {
+                        position: 'right'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: ${value} points (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Standing pie chart
+        const standingPieCtx = document.getElementById('standingPieChart').getContext('2d');
+        standingPieChart = new Chart(standingPieCtx, {
+            type: 'pie',
+            data: {
+                labels: houseNames,
+                datasets: [{
+                    data: standingData.points,
+                    backgroundColor: houseColors,
+                    borderColor: '#fff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Standing Points Distribution',
+                        font: {
+                            size: 18
+                        }
+                    },
+                    legend: {
+                        position: 'right'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: ${value} points (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Combined pie chart
+        const combinedPieCtx = document.getElementById('combinedPieChart').getContext('2d');
+        combinedPieChart = new Chart(combinedPieCtx, {
+            type: 'pie',
+            data: {
+                labels: houseNames,
+                datasets: [{
+                    data: combinedData.total_points,
+                    backgroundColor: houseColors,
+                    borderColor: '#fff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Total Points Distribution',
+                        font: {
+                            size: 18
+                        }
+                    },
+                    legend: {
+                        position: 'right'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: ${value} points (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    // Initialize all charts when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        createBarCharts();
+        createPieCharts();
+        
+        // Chart type toggle
+        document.getElementById('barChartBtn').addEventListener('click', function() {
+            document.getElementById('barChartsSection').style.display = 'block';
+            document.getElementById('pieChartsSection').style.display = 'none';
+            document.getElementById('barChartBtn').classList.add('active');
+            document.getElementById('barChartBtn').classList.remove('btn-outline-primary');
+            document.getElementById('barChartBtn').classList.add('btn-primary');
+            document.getElementById('pieChartBtn').classList.remove('active');
+            document.getElementById('pieChartBtn').classList.add('btn-outline-primary');
+            document.getElementById('pieChartBtn').classList.remove('btn-primary');
+        });
+        
+        document.getElementById('pieChartBtn').addEventListener('click', function() {
+            document.getElementById('barChartsSection').style.display = 'none';
+            document.getElementById('pieChartsSection').style.display = 'block';
+            document.getElementById('pieChartBtn').classList.add('active');
+            document.getElementById('pieChartBtn').classList.remove('btn-outline-primary');
+            document.getElementById('pieChartBtn').classList.add('btn-primary');
+            document.getElementById('barChartBtn').classList.remove('active');
+            document.getElementById('barChartBtn').classList.add('btn-outline-primary');
+            document.getElementById('barChartBtn').classList.remove('btn-primary');
+        });
+        
+        // Data type toggle for bar charts
+        document.getElementById('climbDataBtn').addEventListener('click', function() {
+            // Bar charts
+            document.getElementById('climbBarChartContainer').style.display = 'block';
+            document.getElementById('standingBarChartContainer').style.display = 'none';
+            document.getElementById('combinedBarChartContainer').style.display = 'none';
+            
+            // Pie charts
+            document.getElementById('climbPieChartContainer').style.display = 'block';
+            document.getElementById('standingPieChartContainer').style.display = 'none';
+            document.getElementById('combinedPieChartContainer').style.display = 'none';
+            
+            // Update button styles
+            updateDataButtonStyles('climbDataBtn');
+        });
+        
+        document.getElementById('standingDataBtn').addEventListener('click', function() {
+            // Bar charts
+            document.getElementById('climbBarChartContainer').style.display = 'none';
+            document.getElementById('standingBarChartContainer').style.display = 'block';
+            document.getElementById('combinedBarChartContainer').style.display = 'none';
+            
+            // Pie charts
+            document.getElementById('climbPieChartContainer').style.display = 'none';
+            document.getElementById('standingPieChartContainer').style.display = 'block';
+            document.getElementById('combinedPieChartContainer').style.display = 'none';
+            
+            // Update button styles
+            updateDataButtonStyles('standingDataBtn');
+        });
+        
+        document.getElementById('combinedDataBtn').addEventListener('click', function() {
+            // Bar charts
+            document.getElementById('climbBarChartContainer').style.display = 'none';
+            document.getElementById('standingBarChartContainer').style.display = 'none';
+            document.getElementById('combinedBarChartContainer').style.display = 'block';
+            
+            // Pie charts
+            document.getElementById('climbPieChartContainer').style.display = 'none';
+            document.getElementById('standingPieChartContainer').style.display = 'none';
+            document.getElementById('combinedPieChartContainer').style.display = 'block';
+            
+            // Update button styles
+            updateDataButtonStyles('combinedDataBtn');
+        });
+        
+        function updateDataButtonStyles(activeId) {
+            const buttons = ['climbDataBtn', 'standingDataBtn', 'combinedDataBtn'];
+            buttons.forEach(id => {
+                const btn = document.getElementById(id);
+                if (id === activeId) {
+                    btn.classList.add('active');
+                    btn.classList.remove('btn-outline-success');
+                    btn.classList.add('btn-success');
+                } else {
+                    btn.classList.remove('active');
+                    btn.classList.add('btn-outline-success');
+                    btn.classList.remove('btn-success');
+                }
+            });
+        }
+    });
+</script>
+
+<style>
+    .house-badge {
+        padding: 5px 10px;
+        border-radius: 15px;
+        color: white;
+        font-weight: bold;
+        display: inline-block;
+        min-width: 80px;
+        text-align: center;
+    }
+    
+    .Black {
+        background-color: var(--black-house);
+    }
+    
+    .Blue {
+        background-color: var(--blue-house);
+    }
+    
+    .Green {
+        background-color: var(--green-house);
+    }
+    
+    .White {
+        background-color: var(--white-house);
+        color: black;
+    }
+    
+    .Gold {
+        background-color: var(--gold-house);
+        color: black;
+    }
+    
+    .Purple {
+        background-color: var(--purple-house);
+    }
+    
+    .chart-container {
+        height: 400px;
+        margin-bottom: 30px;
+    }
+    
+    .btn-group .btn {
+        margin-right: 5px;
+    }
+    
+    canvas {
+        max-height: 350px;
+    }
+</style>
+{% endblock %}
