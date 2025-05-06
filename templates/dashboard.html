@@ -21,15 +21,42 @@
         <div class="stats-card">
             <h3>Log Your Climb</h3>
             <form action="{{ url_for('log_climb') }}" method="post">
-                {{ form.csrf_token }}  <!-- Add this line -->
+                {{ form.csrf_token }}
                 <div class="mb-3">
                     <label for="flights" class="form-label">Number of Flights</label>
                     <input type="number" class="form-control" id="flights" name="flights" required min="1">
                 </div>
                 <button type="submit" class="btn btn-primary w-100">Log Climb</button>
             </form>
+            
+            <div class="mt-4">
+                <h5>Upload Health App Screenshot</h5>
+                <p class="text-muted small">We can automatically detect flights from your health app</p>
+                <form action="{{ url_for('upload_screenshot') }}" method="post" enctype="multipart/form-data">
+                    {{ form.csrf_token }}
+                    <div class="mb-3">
+                        <input type="file" class="form-control" id="screenshot" name="screenshot" accept=".jpg,.jpeg,.png" required>
+                    </div>
+                    <button type="submit" class="btn btn-outline-primary w-100">Analyze Screenshot</button>
+                </form>
+            </div>
         </div>
 
+        {% if recent_logs %}
+        <div class="stats-card">
+            <h3>Recent Activity</h3>
+            <ul class="list-group">
+                {% for log in recent_logs %}
+                <li class="list-group-item">
+                    <span class="badge bg-primary">{{ log.flights }} flights</span>
+                    <span class="badge bg-success">+{{ log.points }} points</span>
+                    <small class="text-muted float-end">{{ log.formatted_timestamp }}</small>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
 
     <div class="col-md-8">
         <div class="stats-card">
