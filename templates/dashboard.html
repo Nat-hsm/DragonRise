@@ -21,6 +21,7 @@
         <div class="stats-card">
             <h3>Log Your Climb</h3>
             <form action="{{ url_for('log_climb') }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 {{ form.csrf_token }}
                 <div class="mb-3">
                     <label for="flights" class="form-label">Number of Flights</label>
@@ -41,7 +42,7 @@
                 </form>
             </div>
         </div>
-
+    </div>
         {% if recent_logs %}
         <div class="stats-card">
             <h3>Recent Activity</h3>
@@ -63,7 +64,7 @@
             <h3>House Rankings</h3>
             <div class="row">
                 {% for house in houses %}
-                <div class="col-md-6">
+                <div class="col-md-6 mb-3">
                     <div class="house-card {{ house.name }}">
                         <h4>{{ house.name }} House</h4>
                         <div class="points-display">{{ house.total_points }}</div>

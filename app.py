@@ -4,7 +4,7 @@ from flask_wtf.csrf import CSRFError, CSRFProtect
 from flask_wtf import FlaskForm
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.sql import text
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, func
 from datetime import datetime, timedelta, timezone  # Add timezone import
 from dotenv import load_dotenv
 import os
@@ -58,10 +58,7 @@ except Exception as e:
     # Continue anyway to allow app initialization, but functionality will be limited
 
 # Import models AFTER extensions are initialized
-from models import User, House, ClimbLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
-
-# Set log level from config
-app.logger.setLevel(app.config['LOG_LEVEL'])
+from models import User, House, ClimbLog, StandingLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
 
 @app.route('/')
 def index():
@@ -69,84 +66,83 @@ def index():
     return render_template('index.html', houses=houses)
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("20 per minute")  # Updated from 5 to 20
+@limiter.limit("5 per minute")
 def register():
-    form = FlaskForm()
     if request.method == 'POST':
-        if form.validate_on_submit():
-            try:
-                username = request.form['username'].strip()
-                password = request.form['password']
-                house = request.form['house']
+        try:
+            username = request.form['username'].strip()
+            password = request.form['password']
+            house = request.form['house']
 
-                # Validate input
-                if not username or not password or not house:
-                    flash('All fields are required', 'danger')
-                    return redirect(url_for('register'))
-
-                if User.query.filter_by(username=username).first():
-                    flash('Username already exists', 'danger')
-                    log_activity(app, None, 'Registration Failed', 'Username Exists')
-                    return redirect(url_for('register'))
-
-                # Create new user with hashed password
-                user = User(username=username, house=house)
-                user.set_password(password)
-
-                house_obj = House.query.filter_by(name=house).first()
-                if house_obj:
-                    house_obj.member_count += 1
-                    db.session.add(user)
-                    db.session.commit()
-                    log_activity(app, user.id, 'Registration', 'Success')
-                    flash('Registration successful! Please login.', 'success')
-                    return redirect(url_for('login'))
-                else:
-                    flash('Invalid house selection', 'danger')
-                    log_activity(app, None, 'Registration Failed', 'Invalid House')
-                    return redirect(url_for('register'))
-
-            except Exception as e:
-                app.logger.error(f'Registration error: {str(e)}')
-                db.session.rollback()
-                flash('An error occurred during registration', 'danger')
+            # Validate input
+            if not username or not password or not house:
+                flash('All fields are required', 'danger')
                 return redirect(url_for('register'))
 
-    return render_template('register.html', form=form)
+            if User.query.filter_by(username=username).first():
+                flash('Username already exists', 'danger')
+                log_activity(app, None, 'Registration Failed', 'Username Exists')
+                return redirect(url_for('register'))
+
+            # Create new user with hashed password
+            user = User(username=username, house=house)
+            user.set_password(password)
+
+            house_obj = House.query.filter_by(name=house).first()
+            if house_obj:
+                house_obj.member_count += 1
+                db.session.add(user)
+                db.session.commit()
+                log_activity(app, user.id, 'Registration', 'Success')
+                flash('Registration successful! Please login.', 'success')
+                return redirect(url_for('login'))
+            else:
+                flash('Invalid house selection', 'danger')
+                log_activity(app, None, 'Registration Failed', 'Invalid House')
+                return redirect(url_for('register'))
+
+        except Exception as e:
+            app.logger.error(f'Registration error: {str(e)}')
+            db.session.rollback()
+            flash('An error occurred during registration', 'danger')
+            return redirect(url_for('register'))
+
+    return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("20 per minute")  # Updated from 5 to 20
+@limiter.limit("5 per minute")
 def login():
-    form = FlaskForm()
     if request.method == 'POST':
-        if form.validate_on_submit():
-            try:
-                username = request.form['username'].strip()
-                password = request.form['password']
+        try:
+            username = request.form['username'].strip()
+            password = request.form['password']
 
-                user = User.query.filter(User.username.ilike(username)).first()
-                if user and user.check_password(password):
-                    login_user(user)
-                    user.last_login = datetime.now(timezone.utc)  # Update last login time
-                    db.session.commit()
-                    log_activity(app, user.id, 'Login', 'Success')
-                    flash('Welcome back, Dragon Climber!', 'success')
-                    next_page = request.args.get('next')
-                    
-                    # Redirect admin to admin dashboard
-                    if user.is_admin:
-                        return redirect(next_page or url_for('admin_dashboard'))
-                    else:
-                        return redirect(next_page or url_for('dashboard'))
+            # Use case-insensitive username matching
+            user = User.query.filter(User.username.ilike(username)).first()
+            if user and user.check_password(password):
+                login_user(user)
+                # Update last login time
+                user.last_login = datetime.now(timezone.utc)
+                db.session.commit()
+                
+                log_activity(app, user.id, 'Login', 'Success')
+                flash('Welcome back, Dragon Climber!', 'success')
+                next_page = request.args.get('next')
+                
+                # Redirect admin users to admin dashboard
+                if user.is_admin:
+                    return redirect(next_page or url_for('admin_dashboard'))
+                else:
+                    return redirect(next_page or url_for('dashboard'))
 
-                log_activity(app, None, 'Login Failed', 'Invalid Credentials')
-                flash('Invalid username or password', 'danger')
+            log_activity(app, None, 'Login Failed', 'Invalid Credentials')
+            flash('Invalid username or password', 'danger')
 
-            except Exception as e:
-                app.logger.error(f'Login error: {str(e)}')
-                flash('An error occurred during login', 'danger')
+        except Exception as e:
+            app.logger.error(f'Login error: {str(e)}')
+            flash('An error occurred during login', 'danger')
 
-    return render_template('login.html', form=form)
+    return render_template('login.html')
 
 @app.route('/logout')
 @login_required
@@ -158,58 +154,255 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    form = FlaskForm()
     houses = House.query.order_by(House.total_points.desc()).all()
     recent_logs = ClimbLog.query.filter_by(user_id=current_user.id)\
         .order_by(ClimbLog.timestamp.desc()).limit(5).all()
     return render_template('dashboard.html', 
                          houses=houses, 
                          user=current_user, 
-                         recent_logs=recent_logs,
-                         form=form)
+                         recent_logs=recent_logs)
+
+@app.route('/standing-dashboard')
+@login_required
+def standing_dashboard():
+    houses = House.query.order_by(House.total_points.desc()).all()
+    recent_logs = StandingLog.query.filter_by(user_id=current_user.id)\
+        .order_by(StandingLog.timestamp.desc()).limit(5).all()
+    return render_template('standing_dashboard.html', 
+                         houses=houses, 
+                         user=current_user, 
+                         recent_logs=recent_logs)
+
+@app.route('/admin-dashboard')
+@login_required
+@admin_required
+def admin_dashboard():
+    # Get all users
+    users = User.query.all()
+    
+    # Get all houses
+    houses = House.query.order_by(House.name).all()
+    
+    # Calculate total statistics
+    total_stats = {
+        'flights': db.session.query(func.sum(User.total_flights)).scalar() or 0,
+        'standing_time': db.session.query(func.sum(User.total_standing_time)).scalar() or 0,
+        'points': db.session.query(func.sum(User.total_points)).scalar() or 0
+    }
+    
+    # Mock activity logs (in a real app, you'd fetch these from a database)
+    activity_logs = [
+        {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M'), 'username': 'System', 'action': 'System Startup', 'details': 'Application initialized'},
+        {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M'), 'username': 'Admin', 'action': 'Login', 'details': 'Admin logged in'}
+    ]
+    
+    return render_template('admin_dashboard.html',
+                         users=users,
+                         houses=houses,
+                         total_stats=total_stats,
+                         activity_logs=activity_logs)
+
+@app.route('/analytics-dashboard')
+@login_required
+def analytics_dashboard():
+    houses = House.query.order_by(House.name).all()
+    
+    # Prepare data for charts
+    house_names = [house.name for house in houses]
+    
+    # Define colors for each house - using the CSS variables
+    house_colors = {
+        'Black': 'rgba(51, 51, 51, 0.8)',
+        'Blue': 'rgba(0, 102, 204, 0.8)',
+        'Green': 'rgba(0, 153, 51, 0.8)',
+        'White': 'rgba(248, 249, 250, 0.8)',
+        'Gold': 'rgba(255, 204, 0, 0.8)',
+        'Purple': 'rgba(102, 0, 153, 0.8)'
+    }
+    
+    house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
+    
+    # Prepare climbing data
+    climbing_data = {
+        'flights': [house.total_flights for house in houses],
+        'points': [house.total_flights * 10 for house in houses]
+    }
+    
+    # Prepare standing data
+    standing_data = {
+        'minutes': [getattr(house, 'total_standing_time', 0) for house in houses],
+        'points': [getattr(house, 'total_standing_time', 0) for house in houses]  # 1 point per minute
+    }
+    
+    # Prepare combined data
+    combined_data = {
+        'climbing_points': [house.total_flights * 10 for house in houses],
+        'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
+        'total_points': [house.total_points for house in houses]
+    }
+    
+    return render_template('analytics_dashboard.html',
+                         houses=houses,
+                         house_names=house_names,
+                         house_colors=house_colors_list,
+                         climbing_data=climbing_data,
+                         standing_data=standing_data,
+                         combined_data=combined_data)
 
 @app.route('/log_climb', methods=['POST'])
 @login_required
 def log_climb():
-    form = FlaskForm()
-    if form.validate_on_submit():
-        try:
-            flights = int(request.form['flights'])
-            if flights <= 0 or flights > app.config['MAX_FLIGHTS_PER_LOG']:
-                flash(f'Please enter a valid number of flights (1-{app.config["MAX_FLIGHTS_PER_LOG"]})', 'danger')
-                return redirect(url_for('dashboard'))
-
-            points = flights * app.config['POINTS_PER_FLIGHT']
-
-            # Create climb log
-            log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
-
-            # Update user stats
-            current_user.total_flights += flights
-            current_user.total_points += points
-
-            # Update house points
-            house = House.query.filter_by(name=current_user.house).first()
-            if not house:
-                raise ValueError('Invalid house association')
-
-            house.total_points += points
-            house.total_flights += flights
-
-            db.session.add(log)
-            db.session.commit()
-
-            log_activity(app, current_user.id, 'Climb Logged', f'{flights} flights')
-            flash(f'Added {points} points to {current_user.house} house!', 'success')
-
-        except ValueError as e:
+    try:
+        flights = int(request.form['flights'])
+        if flights <= 0:
             flash('Please enter a valid number of flights', 'danger')
-            app.logger.warning(f'Invalid climb input: {str(e)}')
-        except Exception as e:
-            flash('An error occurred while logging your climb', 'danger')
-            app.logger.error(f'Climb logging error: {str(e)}')
-            db.session.rollback()
+            return redirect(url_for('dashboard'))
 
+        points = flights * 10
+
+        # Create climb log
+        log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
+
+        # Update user stats
+        current_user.total_flights += flights
+        current_user.total_points += points
+
+        # Update house points
+        house = House.query.filter_by(name=current_user.house).first()
+        if not house:
+            raise ValueError('Invalid house association')
+
+        house.total_points += points
+        house.total_flights += flights
+
+        db.session.add(log)
+        db.session.commit()
+
+        log_activity(app, current_user.id, 'Climb Logged', f'{flights} flights')
+        flash(f'Added {points} points to {current_user.house} house!', 'success')
+
+    except ValueError as e:
+        flash('Please enter a valid number of flights', 'danger')
+        app.logger.warning(f'Invalid climb input: {str(e)}')
+    except Exception as e:
+        flash('An error occurred while logging your climb', 'danger')
+        app.logger.error(f'Climb logging error: {str(e)}')
+        db.session.rollback()
+
+    return redirect(url_for('dashboard'))
+
+@app.route('/log_standing', methods=['POST'])
+@login_required
+def log_standing():
+    try:
+        minutes = int(request.form['minutes'])
+        notes = request.form.get('notes', '')
+        
+        if minutes <= 0:
+            flash('Please enter a valid number of minutes', 'danger')
+            return redirect(url_for('standing_dashboard'))
+
+        # Create standing log
+        log = StandingLog(user_id=current_user.id, minutes=minutes, notes=notes)
+
+        # Update user stats
+        current_user.update_standing_time(minutes)
+
+        # Update house points
+        house = House.query.filter_by(name=current_user.house).first()
+        if not house:
+            raise ValueError('Invalid house association')
+
+        # Check if house has the update_standing_time method
+        if hasattr(house, 'update_standing_time'):
+            house.update_standing_time(minutes)
+        else:
+            # Fallback if the method doesn't exist
+            house.total_points += minutes
+            if hasattr(house, 'total_standing_time'):
+                house.total_standing_time += minutes
+            else:
+                app.logger.warning(f"House {house.name} doesn't have total_standing_time attribute")
+
+        db.session.add(log)
+        db.session.commit()
+
+        log_activity(app, current_user.id, 'Standing Time Logged', f'{minutes} minutes')
+        flash(f'Added {minutes} points to {current_user.house} house for standing time!', 'success')
+
+    except ValueError as e:
+        flash('Please enter a valid number of minutes', 'danger')
+        app.logger.warning(f'Invalid standing time input: {str(e)}')
+    except Exception as e:
+        flash('An error occurred while logging your standing time', 'danger')
+        app.logger.error(f'Standing time logging error: {str(e)}')
+        db.session.rollback()
+
+    return redirect(url_for('standing_dashboard'))
+
+@app.route('/upload-screenshot', methods=['POST'])
+@login_required
+def upload_screenshot():
+    try:
+        # Check if a file was uploaded
+        if 'screenshot' not in request.files:
+            flash('No file selected', 'danger')
+            return redirect(url_for('dashboard'))
+            
+        file = request.files['screenshot']
+        
+        # Check if filename is empty
+        if file.filename == '':
+            flash('No file selected', 'danger')
+            return redirect(url_for('dashboard'))
+            
+        if file and allowed_file(file.filename):
+            # Create uploads directory if it doesn't exist
+            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+            
+            # Secure the filename and save file
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+            unique_filename = f"{current_user.id}_{timestamp}_{filename}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            file.save(filepath)
+            
+            # Create image analyzer and process the image
+            image_analyzer = ImageAnalyzer()
+            file.seek(0)  # Reset file pointer to beginning
+            result = image_analyzer.analyze_image(file)
+            
+            if result.get('success'):
+                flights = result.get('flights')
+                timestamp_str = result.get('timestamp')
+                
+                # Log the climb
+                points = flights * 10
+                log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
+                
+                # Update user stats
+                current_user.total_flights += flights
+                current_user.total_points += points
+                
+                # Update house points
+                house = House.query.filter_by(name=current_user.house).first()
+                if house:
+                    house.total_points += points
+                    house.total_flights += flights
+                
+                db.session.add(log)
+                db.session.commit()
+                
+                log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights')
+                flash(f'Successfully processed screenshot! Added {points} points for {flights} flights.', 'success')
+            else:
+                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
+        else:
+            flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
+    except Exception as e:
+        app.logger.error(f'Screenshot upload error: {str(e)}')
+        flash('An error occurred while processing your screenshot', 'danger')
+    
     return redirect(url_for('dashboard'))
 
 @app.route('/api/house_points')
@@ -222,32 +415,9 @@ def house_points():
         'members': house.member_count
     } for house in houses])
 
-@app.route('/admin')
-@login_required
-@admin_required
-def admin_dashboard():
-    # Get all non-admin users ranked by points
-    leaderboard = User.query.filter_by(is_admin=False).order_by(User.total_points.desc()).all()
-    houses = House.query.order_by(House.total_points.desc()).all()
-    
-    # Get system statistics
-    stats = {
-        'total_users': User.query.filter_by(is_admin=False).count(),
-        'total_flights': db.session.query(db.func.sum(User.total_flights)).filter(User.is_admin==False).scalar() or 0,
-        'total_logs': ClimbLog.query.count(),
-        'app_version': '1.0',
-    }
-    
-    return render_template(
-        'admin_dashboard.html', 
-        leaderboard=leaderboard, 
-        houses=houses,
-        stats=stats
-    )
-
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    return User.query.get(int(user_id))
 
 def init_db():
     """Initialize the database with required initial data"""
@@ -273,6 +443,11 @@ def init_db():
     except Exception as e:
         app.logger.error(f"Unexpected error during database initialization: {str(e)}")
         return False
+
+def allowed_file(filename):
+    """Check if the file extension is allowed"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg'})
 
 @app.route('/health')
 def health_check():
@@ -311,18 +486,7 @@ def not_found_error(error):
 @app.errorhandler(500)
 def internal_error(error):
     db.session.rollback()
-    app.logger.error(f'Server Error: {error}')
     return render_template('500.html'), 500
-
-@app.errorhandler(CSRFError)
-def handle_csrf_error(e):
-    app.logger.warning(f'CSRF Error: {e}')
-    flash('Security token expired. Please try again.', 'danger')
-    return redirect(request.referrer or url_for('index'))
-
-@app.route('/csrf-token')
-def get_csrf():
-    return jsonify({'csrf_token': csrf._get_csrf_token()})
 
 @app.context_processor
 def utility_processor():
@@ -334,202 +498,5 @@ def utility_processor():
 def shutdown_session(exception=None):
     db.session.remove()
 
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
-
-@app.route('/upload', methods=['GET'])
-@login_required
-def upload_form():
-    # Instead of rendering upload.html, redirect to dashboard
-    return redirect(url_for('dashboard'))
-
-@app.route('/upload-screenshot', methods=['POST'])
-@login_required
-def upload_screenshot():
-    form = FlaskForm()
-    if form.validate_on_submit():
-        try:
-            # Check if a file was uploaded
-            if 'screenshot' not in request.files:
-                flash('No file selected', 'danger')
-                return redirect(url_for('dashboard'))  # Changed from upload_form
-                
-            file = request.files['screenshot']
-            
-            # Check if filename is empty
-            if file.filename == '':
-                flash('No file selected', 'danger')
-                return redirect(url_for('dashboard'))  # Changed from upload_form
-                
-            if file and allowed_file(file.filename):
-                # Create uploads directory if it doesn't exist
-                os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-                
-                # Secure the filename and save file
-                filename = secure_filename(file.filename)
-                timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
-                unique_filename = f"{current_user.id}_{timestamp}_{filename}"
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-                file.save(filepath)
-                
-                # Create image analyzer and process the image
-                image_analyzer = ImageAnalyzer()
-                file.seek(0)  # Reset file pointer to beginning
-                result = image_analyzer.analyze_image(file)
-                
-                if result.get('success'):
-                    flights = result.get('flights')
-                    timestamp_str = result.get('timestamp')
-                    
-                    if flights is None:
-                        flash('Could not determine flights from image. Please enter manually.', 'warning')
-                        return render_template('manual_entry.html', 
-                                             form=form, 
-                                             image_path=filepath,
-                                             timestamp=timestamp_str)
-                    
-                    # If timestamp wasn't detected, use current time
-                    activity_time = None
-                    if timestamp_str:
-                        try:
-                            # Try to parse the detected timestamp (flexible format)
-                            activity_time = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M')
-                        except ValueError:
-                            # Try alternative formats or set to current time
-                            formats = [
-                                '%Y-%m-%d %H:%M:%S',
-                                '%m/%d/%Y %H:%M',
-                                '%d-%m-%Y %H:%M'
-                            ]
-                            for fmt in formats:
-                                try:
-                                    activity_time = datetime.strptime(timestamp_str, fmt)
-                                    break
-                                except ValueError:
-                                    continue
-                    
-                    # If parsing fails or timestamp is missing, use current time
-                    if not activity_time:
-                        activity_time = datetime.now(timezone.utc)
-                    
-                    # Validate the flights count
-                    if flights <= 0 or flights > app.config['MAX_FLIGHTS_PER_LOG']:
-                        flash(f'Invalid number of flights detected: {flights}. Please enter manually.', 'warning')
-                        return render_template('manual_entry.html', 
-                                             form=form, 
-                                             image_path=filepath,
-                                             timestamp=activity_time.strftime('%Y-%m-%d %H:%M'))
-                    
-                    # Create notes with source information
-                    notes = f"Auto-detected from screenshot. Timestamp: {activity_time.strftime('%Y-%m-%d %H:%M')}"
-                    
-                    # Calculate points
-                    points = flights * app.config['POINTS_PER_FLIGHT']
-                    
-                    # Create climb log
-                    log = ClimbLog(user_id=current_user.id, flights=flights, points=points, notes=notes)
-                    
-                    # Update user stats
-                    current_user.total_flights += flights
-                    current_user.total_points += points
-                    
-                    # Update house points
-                    house = House.query.filter_by(name=current_user.house).first()
-                    if not house:
-                        raise ValueError('Invalid house association')
-                    
-                    house.total_points += points
-                    house.total_flights += flights
-                    
-                    db.session.add(log)
-                    db.session.commit()
-                    
-                    log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights')
-                    flash(f'Success! Added {flights} flights ({points} points) to your account!', 'success')
-                    return redirect(url_for('dashboard'))
-                    
-                else:
-                    # Analysis failed, show manual entry form
-                    flash('Could not analyze the image. Please enter the details manually.', 'warning')
-                    return render_template('manual_entry.html', 
-                                         form=form, 
-                                         image_path=filepath,
-                                         error=result.get('error'))
-            else:
-                flash('Invalid file type. Please upload a JPG, JPEG or PNG file.', 'danger')
-                return redirect(url_for('dashboard'))  # Changed from upload_form
-                
-        except Exception as e:
-            app.logger.error(f"Screenshot upload error: {str(e)}")
-            flash('An error occurred while processing your image', 'danger')
-            return redirect(url_for('dashboard'))  # Changed from upload_form
-    
-    return redirect(url_for('dashboard'))  # Changed from upload_form
-
-@app.route('/manual-entry', methods=['POST'])
-@login_required
-def manual_entry():
-    form = FlaskForm()
-    if form.validate_on_submit():
-        try:
-            flights = int(request.form['flights'])
-            timestamp_str = request.form.get('timestamp')
-            
-            if flights <= 0 or flights > app.config['MAX_FLIGHTS_PER_LOG']:
-                flash(f'Please enter a valid number of flights (1-{app.config["MAX_FLIGHTS_PER_LOG"]})', 'danger')
-                return redirect(url_for('upload_form'))
-            
-            # Parse timestamp or use current time
-            try:
-                if timestamp_str:
-                    activity_time = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M')
-                else:
-                    activity_time = datetime.now(timezone.utc)
-            except ValueError:
-                activity_time = datetime.now(timezone.utc)
-            
-            # Create notes
-            notes = f"Manually entered from screenshot. Timestamp: {activity_time.strftime('%Y-%m-%d %H:%M')}"
-            
-            # Calculate points
-            points = flights * app.config['POINTS_PER_FLIGHT']
-            
-            # Create climb log and update stats (same as auto-detection)
-            log = ClimbLog(user_id=current_user.id, flights=flights, points=points, notes=notes)
-            
-            current_user.total_flights += flights
-            current_user.total_points += points
-            
-            house = House.query.filter_by(name=current_user.house).first()
-            if house:
-                house.total_points += points
-                house.total_flights += flights
-            
-            db.session.add(log)
-            db.session.commit()
-            
-            log_activity(app, current_user.id, 'Manual Climb Logged', f'{flights} flights')
-            flash(f'Success! Added {flights} flights ({points} points) to your account!', 'success')
-            
-        except ValueError:
-            flash('Please enter a valid number of flights', 'danger')
-        except Exception as e:
-            app.logger.error(f"Manual entry error: {str(e)}")
-            flash('An error occurred while logging your climb', 'danger')
-            db.session.rollback()
-            
-    return redirect(url_for('dashboard'))
-
 if __name__ == '__main__':
-    # Print diagnostic information
-    app.logger.info(f"Starting application in {os.getenv('FLASK_ENV', 'development')} mode")
-    app.logger.info(f"Using database: {app.config['SQLALCHEMY_DATABASE_URI']}")
-    
-    # Initialize database (but don't fail if it doesn't work)
-    db_initialized = init_db()
-    if not db_initialized:
-        app.logger.warning("Database initialization failed, some functionality may be limited")
-    
-    # Run the app
-    app.run(debug=app.config['DEBUG'])
+    app.run(debug=True)

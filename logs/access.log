@@ -1,0 +1,138 @@
+2025-05-06 12:15:04,230 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:15:04,246 - app - INFO - Database connection successful
+2025-05-06 12:15:04,246 - app - INFO - Database setup complete
+2025-05-06 12:15:04,262 - app - INFO - Initializing database...
+2025-05-06 12:15:04,324 - app - INFO - Database tables created
+2025-05-06 12:15:04,324 - app - INFO - Houses initialized
+2025-05-06 12:15:04,590 - app - INFO - Admin user initialized
+2025-05-06 12:15:05,218 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:15:05,218 - app - INFO - Database connection successful
+2025-05-06 12:15:05,218 - app - INFO - Database setup complete
+2025-05-06 12:15:05,249 - app - INFO - Initializing database...
+2025-05-06 12:15:05,265 - app - INFO - Database tables created
+2025-05-06 12:15:05,270 - app - INFO - Houses initialized
+2025-05-06 12:15:05,270 - app - INFO - Admin user initialized
+2025-05-06 12:15:15,693 - app - INFO - 2025-05-06 04:15:15 - User None - Login Failed - Invalid Credentials
+2025-05-06 12:15:25,624 - app - INFO - 2025-05-06 04:15:25 - User 2 - Registration - Success
+2025-05-06 12:15:31,270 - app - INFO - 2025-05-06 04:15:31 - User 2 - Login - Success
+2025-05-06 12:18:37,896 - app - INFO - 2025-05-06 04:18:37 - User 2 - Screenshot Climb Logged - 4 flights
+2025-05-06 12:21:48,740 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:21:48,740 - app - INFO - Database connection successful
+2025-05-06 12:21:48,740 - app - INFO - Database setup complete
+2025-05-06 12:21:48,756 - app - INFO - Initializing database...
+2025-05-06 12:21:48,756 - app - INFO - Database tables created
+2025-05-06 12:21:48,772 - app - INFO - Houses initialized
+2025-05-06 12:21:48,772 - app - INFO - Admin user initialized
+2025-05-06 12:21:49,372 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:21:49,372 - app - INFO - Database connection successful
+2025-05-06 12:21:49,372 - app - INFO - Database setup complete
+2025-05-06 12:21:49,382 - app - INFO - Initializing database...
+2025-05-06 12:21:49,382 - app - INFO - Database tables created
+2025-05-06 12:21:49,382 - app - INFO - Houses initialized
+2025-05-06 12:21:49,382 - app - INFO - Admin user initialized
+2025-05-06 12:22:54,816 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:22:54,832 - app - INFO - Database connection successful
+2025-05-06 12:22:54,832 - app - INFO - Database setup complete
+2025-05-06 12:22:54,832 - app - INFO - Initializing database...
+2025-05-06 12:22:54,832 - app - INFO - Database tables created
+2025-05-06 12:22:54,847 - app - INFO - Houses initialized
+2025-05-06 12:22:54,847 - app - INFO - Admin user initialized
+2025-05-06 12:22:55,419 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:22:55,419 - app - INFO - Database connection successful
+2025-05-06 12:22:55,419 - app - INFO - Database setup complete
+2025-05-06 12:22:55,435 - app - INFO - Initializing database...
+2025-05-06 12:22:55,435 - app - INFO - Database tables created
+2025-05-06 12:22:55,435 - app - INFO - Houses initialized
+2025-05-06 12:22:55,435 - app - INFO - Admin user initialized
+2025-05-06 12:23:34,268 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:23:34,268 - app - INFO - Database connection successful
+2025-05-06 12:23:34,268 - app - INFO - Database setup complete
+2025-05-06 12:23:34,268 - app - INFO - Initializing database...
+2025-05-06 12:23:34,268 - app - INFO - Database tables created
+2025-05-06 12:23:34,283 - app - INFO - Houses initialized
+2025-05-06 12:23:34,283 - app - INFO - Admin user initialized
+2025-05-06 12:23:34,831 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:23:34,831 - app - INFO - Database connection successful
+2025-05-06 12:23:34,831 - app - INFO - Database setup complete
+2025-05-06 12:23:34,846 - app - INFO - Initializing database...
+2025-05-06 12:23:34,846 - app - INFO - Database tables created
+2025-05-06 12:23:34,846 - app - INFO - Houses initialized
+2025-05-06 12:23:34,846 - app - INFO - Admin user initialized
+2025-05-06 12:25:12,149 - app - INFO - 2025-05-06 04:25:12 - User 2 - Login - Success
+2025-05-06 12:25:29,662 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:25:29,662 - app - INFO - Database connection successful
+2025-05-06 12:25:29,662 - app - INFO - Database setup complete
+2025-05-06 12:25:29,678 - app - INFO - Initializing database...
+2025-05-06 12:25:29,678 - app - INFO - Database tables created
+2025-05-06 12:25:29,694 - app - INFO - Houses initialized
+2025-05-06 12:25:29,694 - app - INFO - Admin user initialized
+2025-05-06 12:25:30,225 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:25:30,225 - app - INFO - Database connection successful
+2025-05-06 12:25:30,225 - app - INFO - Database setup complete
+2025-05-06 12:25:30,241 - app - INFO - Initializing database...
+2025-05-06 12:25:30,241 - app - INFO - Database tables created
+2025-05-06 12:25:30,257 - app - INFO - Houses initialized
+2025-05-06 12:25:30,257 - app - INFO - Admin user initialized
+2025-05-06 12:25:38,181 - app - INFO - 2025-05-06 04:25:38 - User None - Login Failed - Invalid Credentials
+2025-05-06 12:25:43,048 - app - INFO - 2025-05-06 04:25:43 - User 2 - Login - Success
+2025-05-06 12:28:22,553 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:28:22,553 - app - INFO - Database connection successful
+2025-05-06 12:28:22,553 - app - INFO - Database setup complete
+2025-05-06 12:28:22,569 - app - INFO - Initializing database...
+2025-05-06 12:28:22,569 - app - INFO - Database tables created
+2025-05-06 12:28:22,569 - app - INFO - Houses initialized
+2025-05-06 12:28:22,569 - app - INFO - Admin user initialized
+2025-05-06 12:28:23,115 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 12:28:23,115 - app - INFO - Database connection successful
+2025-05-06 12:28:23,115 - app - INFO - Database setup complete
+2025-05-06 12:28:23,131 - app - INFO - Initializing database...
+2025-05-06 12:28:23,131 - app - INFO - Database tables created
+2025-05-06 12:28:23,131 - app - INFO - Houses initialized
+2025-05-06 12:28:23,131 - app - INFO - Admin user initialized
+2025-05-06 12:28:34,285 - app - INFO - 2025-05-06 04:28:34 - User 2 - Login - Success
+2025-05-06 14:28:55,506 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 14:28:55,506 - app - INFO - Database connection successful
+2025-05-06 14:28:55,506 - app - INFO - Database setup complete
+2025-05-06 14:28:55,521 - app - INFO - Initializing database...
+2025-05-06 14:28:55,537 - app - INFO - Database tables created
+2025-05-06 14:28:55,537 - app - ERROR - Database initialization error: (sqlite3.OperationalError) no such column: houses.total_standing_time
+[SQL: SELECT houses.id AS houses_id, houses.name AS houses_name, houses.total_points AS houses_total_points, houses.total_flights AS houses_total_flights, houses.total_standing_time AS houses_total_standing_time, houses.member_count AS houses_member_count, houses.created_at AS houses_created_at, houses.last_activity AS houses_last_activity 
+FROM houses 
+WHERE houses.name = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('Black', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-05-06 14:28:56,178 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 14:28:56,178 - app - INFO - Database connection successful
+2025-05-06 14:28:56,178 - app - INFO - Database setup complete
+2025-05-06 14:28:56,193 - app - INFO - Initializing database...
+2025-05-06 14:28:56,193 - app - INFO - Database tables created
+2025-05-06 14:28:56,209 - app - ERROR - Database initialization error: (sqlite3.OperationalError) no such column: houses.total_standing_time
+[SQL: SELECT houses.id AS houses_id, houses.name AS houses_name, houses.total_points AS houses_total_points, houses.total_flights AS houses_total_flights, houses.total_standing_time AS houses_total_standing_time, houses.member_count AS houses_member_count, houses.created_at AS houses_created_at, houses.last_activity AS houses_last_activity 
+FROM houses 
+WHERE houses.name = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('Black', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-05-06 14:32:55,681 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 14:32:55,681 - app - INFO - Database connection successful
+2025-05-06 14:32:55,681 - app - INFO - Database setup complete
+2025-05-06 14:32:55,698 - app - INFO - Initializing database...
+2025-05-06 14:32:55,698 - app - INFO - Database tables created
+2025-05-06 14:32:55,706 - app - ERROR - Database initialization error: (sqlite3.OperationalError) no such column: houses.total_standing_time
+[SQL: SELECT houses.id AS houses_id, houses.name AS houses_name, houses.total_points AS houses_total_points, houses.total_flights AS houses_total_flights, houses.total_standing_time AS houses_total_standing_time, houses.member_count AS houses_member_count, houses.created_at AS houses_created_at, houses.last_activity AS houses_last_activity 
+FROM houses 
+WHERE houses.name = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('Black', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-05-06 14:33:22,463 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 14:33:22,463 - app - INFO - Database connection successful
+2025-05-06 14:33:22,463 - app - INFO - Database setup complete
+2025-05-06 14:37:27,822 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-06 14:37:27,822 - app - INFO - Database connection successful
+2025-05-06 14:37:27,822 - app - INFO - Database setup complete
+2025-05-06 14:37:49,028 - app - INFO - 2025-05-06 06:37:49 - User None - Login Failed - Invalid Credentials
+2025-05-06 14:38:01,638 - app - INFO - 2025-05-06 06:38:01 - User 2 - Registration - Success
+2025-05-06 14:38:06,588 - app - INFO - 2025-05-06 06:38:06 - User 2 - Login - Success
+2025-05-06 14:47:17,031 - app - INFO - Database connection successful

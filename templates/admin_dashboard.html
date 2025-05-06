@@ -1,84 +1,186 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container">
-    <h1 class="mb-4">Admin Dashboard</h1>
-    
-    <div class="row mb-4">
-        <div class="col">
-            <div class="stats-card">
-                <h3>System Statistics</h3>
-                <div class="row">
-                    <div class="col-md-3">
-                        <h5>Total Users</h5>
-                        <div class="points-display">{{ stats.total_users }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <h5>Total Flights</h5>
-                        <div class="points-display">{{ stats.total_flights }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <h5>Total Logs</h5>
-                        <div class="points-display">{{ stats.total_logs }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <h5>App Version</h5>
-                        <div class="points-display">{{ stats.app_version }}</div>
-                    </div>
-                </div>
-            </div>
+<div class="row">
+    <div class="col-md-12 mb-4">
+        <div class="stats-card">
+            <h2>Admin Dashboard</h2>
+            <p class="text-muted">Manage DragonRise system</p>
         </div>
     </div>
+</div>
 
-    <div class="row mb-4">
-        <div class="col">
-            <div class="stats-card">
-                <h3>House Rankings</h3>
-                <div class="row">
-                    {% for house in houses %}
-                    <div class="col-md-4 mb-3">
-                        <div class="house-card {{ house.name }}">
-                            <h4>{{ house.name }} House</h4>
-                            <div class="points-display">{{ house.total_points }}</div>
-                            <p>Total Flights: {{ house.total_flights }}</p>
-                            <p>Members: {{ house.member_count }}</p>
-                        </div>
-                    </div>
+<div class="row">
+    <div class="col-md-6">
+        <div class="stats-card">
+            <h3>User Management</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>House</th>
+                        <th>Flights</th>
+                        <th>Standing Time</th>
+                        <th>Points</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>{{ user.username }}</td>
+                        <td>
+                            <span class="house-badge {{ user.house }}">{{ user.house }}</span>
+                        </td>
+                        <td>{{ user.total_flights }}</td>
+                        <td>{{ user.total_standing_time }} min</td>
+                        <td>{{ user.total_points }}</td>
+                        <td>
+                            <a href="#" class="btn btn-sm btn-outline-primary">Edit</a>
+                        </td>
+                    </tr>
                     {% endfor %}
-                </div>
-            </div>
+                </tbody>
+            </table>
         </div>
     </div>
 
-    <div class="row">
-        <div class="col">
-            <div class="stats-card">
-                <h3>User Leaderboard</h3>
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Rank</th>
-                            <th>Username</th>
-                            <th>House</th>
-                            <th>Flights Climbed</th>
-                            <th>Points</th>
-                            <th>Join Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for user in leaderboard %}
-                        <tr>
-                            <td>{{ loop.index }}</td>
-                            <td>{{ user.username }}</td>
-                            <td>{{ user.house }}</td>
-                            <td>{{ user.total_flights }}</td>
-                            <td>{{ user.total_points }}</td>
-                            <td>{{ user.join_date.strftime('%Y-%m-%d') }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    <div class="col-md-6">
+        <div class="stats-card">
+            <h3>House Management</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>House</th>
+                        <th>Members</th>
+                        <th>Total Points</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for house in houses %}
+                    <tr>
+                        <td>
+                            <span class="house-badge {{ house.name }}">{{ house.name }}</span>
+                        </td>
+                        <td>{{ house.member_count }}</td>
+                        <td>{{ house.total_points }}</td>
+                        <td>
+                            <a href="#" class="btn btn-sm btn-outline-primary">View Details</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="stats-card">
+            <h3>System Statistics</h3>
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <h4>Total Users</h4>
+                        <div class="points-display">{{ users|length }}</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <h4>Total Flights</h4>
+                        <div class="points-display">{{ total_stats.flights }}</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <h4>Standing Time</h4>
+                        <div class="points-display">{{ total_stats.standing_time }}</div>
+                        <p class="text-muted">minutes</p>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <h4>Total Points</h4>
+                        <div class="points-display">{{ total_stats.points }}</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 </div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="stats-card">
+            <h3>Recent Activity</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in activity_logs %}
+                    <tr>
+                        <td>{{ log.timestamp }}</td>
+                        <td>{{ log.username }}</td>
+                        <td>{{ log.action }}</td>
+                        <td>{{ log.details }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    .stat-box {
+        text-align: center;
+        padding: 15px;
+        border-radius: 8px;
+        background-color: #f8f9fa;
+        margin-bottom: 15px;
+    }
+    
+    .house-badge {
+        padding: 5px 10px;
+        border-radius: 15px;
+        color: white;
+        font-weight: bold;
+        display: inline-block;
+        min-width: 80px;
+        text-align: center;
+    }
+    
+    .Black {
+        background-color: var(--black-house);
+    }
+    
+    .Blue {
+        background-color: var(--blue-house);
+    }
+    
+    .Green {
+        background-color: var(--green-house);
+    }
+    
+    .White {
+        background-color: var(--white-house);
+        color: black;
+    }
+    
+    .Gold {
+        background-color: var(--gold-house);
+        color: black;
+    }
+    
+    .Purple {
+        background-color: var(--purple-house);
+    }
+</style>
 {% endblock %}

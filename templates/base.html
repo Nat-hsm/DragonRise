@@ -24,7 +24,13 @@
                             </li>
                         {% else %}
                             <li class="nav-item">
-                                <a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a>
+                                <a class="nav-link" href="{{ url_for('dashboard') }}">Climb Dashboard</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('standing_dashboard') }}">Standing Dashboard</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('analytics_dashboard') }}">Analytics</a>
                             </li>
                         {% endif %}
                         <li class="nav-item">

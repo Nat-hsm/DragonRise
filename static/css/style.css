@@ -49,3 +49,54 @@ body {
     margin-bottom: 20px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
+
+/* Analytics Dashboard Styles */
+.chart-container {
+    min-height: 400px;
+    margin-bottom: 20px;
+}
+
+.btn-group .btn {
+    margin-right: 5px;
+}
+
+.house-badge {
+    padding: 5px 10px;
+    border-radius: 15px;
+    color: white;
+    font-weight: bold;
+    display: inline-block;
+    min-width: 80px;
+    text-align: center;
+}
+
+.nav-tabs .nav-link {
+    color: #495057;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    margin-right: 5px;
+}
+
+.nav-tabs .nav-link.active {
+    color: #495057;
+    background-color: #fff;
+    border-color: #dee2e6 #dee2e6 #fff;
+}
+
+.tab-content {
+    border: 1px solid #dee2e6;
+    border-top: none;
+    padding: 20px;
+    background-color: #fff;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .points-display {
+        font-size: 2rem;
+    }
+    
+    .chart-container {
+        min-height: 300px;
+    }
+}

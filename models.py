@@ -14,14 +14,17 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=True, index=True)
     total_flights = db.Column(db.Integer, default=0)
     total_points = db.Column(db.Integer, default=0)
+    total_standing_time = db.Column(db.Integer, default=0)  # Total standing time in minutes
     join_date = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
     is_active = db.Column(db.Boolean, default=True)
-    is_admin = db.Column(db.Boolean, default=False)  # Add this line
+    is_admin = db.Column(db.Boolean, default=False)
     
     # Relationships
     logs = db.relationship('ClimbLog', backref='user', lazy=True,
                          cascade='all, delete-orphan')
+    standing_logs = db.relationship('StandingLog', backref='user', lazy=True,
+                                  cascade='all, delete-orphan')
 
     # Indexes
     __table_args__ = (
@@ -51,6 +54,12 @@ class User(UserMixin, db.Model):
         self.total_flights += flights
         self.total_points += flights * 10
 
+    def update_standing_time(self, minutes):
+        """Update user standing time"""
+        self.total_standing_time += minutes
+        # Add points for standing time (1 point per minute)
+        self.total_points += minutes
+
     def __repr__(self):
         return f'<User {self.username}>'
 
@@ -63,6 +72,7 @@ class House(db.Model):
     name = db.Column(db.String(20), unique=True, nullable=False, index=True)
     total_points = db.Column(db.Integer, default=0)
     total_flights = db.Column(db.Integer, default=0)
+    total_standing_time = db.Column(db.Integer, default=0)  # Total standing time in minutes
     member_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_activity = db.Column(db.DateTime)
@@ -80,6 +90,12 @@ class House(db.Model):
         """Update house points and flights"""
         self.total_flights += flights
         self.total_points += flights * 10
+        self.last_activity = datetime.utcnow()
+
+    def update_standing_time(self, minutes):
+        """Update house standing time and points"""
+        self.total_standing_time += minutes
+        self.total_points += minutes  # 1 point per minute
         self.last_activity = datetime.utcnow()
 
     def add_member(self):
@@ -135,6 +151,39 @@ class ClimbLog(db.Model):
 
     def __repr__(self):
         return f'<ClimbLog {self.user_id} - {self.flights} flights>'
+
+
+class StandingLog(db.Model):
+    """Standing log model for tracking user standing time"""
+    __tablename__ = 'standing_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    minutes = db.Column(db.Integer, nullable=False)  # Standing time in minutes
+    points = db.Column(db.Integer, nullable=False)   # Points earned (1 per minute)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    notes = db.Column(db.String(200))  # Optional notes
+
+    # Indexes
+    __table_args__ = (
+        Index('idx_standing_user_timestamp', 'user_id', 'timestamp'),
+        Index('idx_standing_timestamp', 'timestamp'),
+    )
+
+    def __init__(self, user_id, minutes, notes=None):
+        self.user_id = user_id
+        self.minutes = minutes
+        self.points = minutes  # 1 point per minute of standing
+        if notes:
+            self.notes = notes
+
+    @property
+    def formatted_timestamp(self):
+        """Return formatted timestamp"""
+        return self.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+
+    def __repr__(self):
+        return f'<StandingLog {self.user_id} - {self.minutes} minutes>'
 
 
 # Add Achievement model for future gamification
@@ -196,8 +245,14 @@ def get_user_stats(user_id):
             db.func.sum(ClimbLog.points)
         ).filter_by(user_id=user_id).scalar() or 0,
         'climb_count': ClimbLog.query.filter_by(user_id=user_id).count(),
+        'standing_time': StandingLog.query.with_entities(
+            db.func.sum(StandingLog.minutes)
+        ).filter_by(user_id=user_id).scalar() or 0,
+        'standing_count': StandingLog.query.filter_by(user_id=user_id).count(),
         'last_climb': ClimbLog.query.filter_by(user_id=user_id)
-            .order_by(ClimbLog.timestamp.desc()).first()
+            .order_by(ClimbLog.timestamp.desc()).first(),
+        'last_standing': StandingLog.query.filter_by(user_id=user_id)
+            .order_by(StandingLog.timestamp.desc()).first()
     }
 
 
