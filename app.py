@@ -566,23 +566,14 @@ def shutdown_session(exception=None):
     db.session.remove()
 
 if __name__ == '__main__':
-    app.run(debug=True)
-
-# Open a Python shell in your project directory
-# Then run:
-from app import app, db
-from models import User
-from utils.security import PasswordManager
-
-with app.app_context():
-    # Check if admin exists
-    admin = User.query.filter(User.username.ilike('Admin')).first()
-    print(f"Admin exists: {admin is not None}")
+    # Initialize the admin user on startup
+    with app.app_context():
+        result = init_admin()
+        if result == "created":
+            print("Admin user created")
+        elif result == "updated":
+            print("Admin user credentials updated")
+        else:
+            print("Admin user already exists")
     
-    if not admin:
-        # Create new admin
-        admin = User(username='Admin', house='Admin', is_admin=True)
-        admin.set_password('123')
-        db.session.add(admin)
-        db.session.commit()
-        print("Admin user created")
+    app.run(debug=True)
