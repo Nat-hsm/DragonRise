@@ -26,18 +26,57 @@ body {
     height: 100%;
     display: flex;
     flex-direction: column;
+    position: relative;
+    overflow: hidden;
 }
 
 .house-card:hover {
     transform: translateY(-5px);
 }
 
+.house-card::after {
+    content: "";
+    position: absolute;
+    bottom: -15px;
+    right: -15px;
+    width: 120px;
+    height: 120px;
+    background-image: url('/static/images/dragon-logo.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: bottom right;
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* House-specific dragon colors */
 .Black { background-color: var(--black-house); color: white; }
+.Black::after { filter: invert(0.9); }
+
 .Blue { background-color: var(--blue-house); color: white; }
+.Blue::after { filter: hue-rotate(210deg); }
+
 .Green { background-color: var(--green-house); color: white; }
+.Green::after { filter: hue-rotate(120deg); }
+
 .White { background-color: var(--white-house); color: black; }
+.White::after { filter: brightness(0.6); }
+
 .Gold { background-color: var(--gold-house); color: black; }
+.Gold::after { filter: hue-rotate(45deg) saturate(1.5); }
+
 .Purple { background-color: var(--purple-house); color: white; }
+.Purple::after { filter: hue-rotate(270deg); }
+
+/* Ensure content appears above the dragon image */
+.house-card h3,
+.house-card h4,
+.house-card .points-display,
+.house-card p {
+    position: relative;
+    z-index: 2;
+}
 
 .points-display {
     font-size: 2.5rem;
