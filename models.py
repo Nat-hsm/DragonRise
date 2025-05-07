@@ -170,10 +170,10 @@ class StandingLog(db.Model):
         Index('idx_standing_timestamp', 'timestamp'),
     )
 
-    def __init__(self, user_id, minutes, notes=None):
+    def __init__(self, user_id, minutes, points=None, notes=None):
         self.user_id = user_id
         self.minutes = minutes
-        self.points = minutes  # 1 point per minute of standing
+        self.points = points if points is not None else minutes  # Allow custom points for multipliers
         if notes:
             self.notes = notes
 
@@ -260,10 +260,10 @@ def init_admin():
     """Initialize admin user"""
     from utils.security import PasswordManager
     
-    admin = User.query.filter(User.username.ilike('Admin')).first()
+    admin = User.query.filter_by(username='Admin').first()
     if not admin:
         admin = User(username='Admin', house='Admin', is_admin=True)
-        admin.set_password('123')
+        admin.set_password('admin123')
         db.session.add(admin)
         try:
             db.session.commit()

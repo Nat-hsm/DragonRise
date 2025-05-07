@@ -15,6 +15,7 @@ from utils.security import init_security, PasswordManager, require_api_key, admi
 from utils.logging_config import LogConfig, log_activity
 from utils.database import setup_database
 from utils.image_analyzer import ImageAnalyzer
+from utils.time_utils import is_peak_hour, get_points_multiplier, get_peak_hours_message
 from config import get_config, validate_config
 from extensions import db, login_manager, migrate
 
@@ -83,7 +84,7 @@ def register():
                 flash('All fields are required', 'danger')
                 return redirect(url_for('register'))
 
-            if User.query.filter(User.username.ilike(username)).first():
+            if User.query.filter_by(username=username).first():
                 flash('Username already exists', 'danger')
                 log_activity(app, None, 'Registration Failed', 'Username Exists')
                 return redirect(url_for('register'))
@@ -262,7 +263,9 @@ def log_climb():
             flash('Please enter a valid number of flights', 'danger')
             return redirect(url_for('dashboard'))
 
-        points = flights * 10
+        # Check if it's peak hour for multiplier
+        multiplier = get_points_multiplier()
+        points = flights * 10 * multiplier
 
         # Create climb log
         log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
@@ -282,8 +285,10 @@ def log_climb():
         db.session.add(log)
         db.session.commit()
 
-        log_activity(app, current_user.id, 'Climb Logged', f'{flights} flights')
-        flash(f'Added {points} points to {current_user.house} house!', 'success')
+        # Add multiplier info to the message if applicable
+        multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
+        log_activity(app, current_user.id, 'Climb Logged', f'{flights} flights{multiplier_text}')
+        flash(f'Added {points} points to {current_user.house} house!{multiplier_text}', 'success')
 
     except ValueError as e:
         flash('Please enter a valid number of flights', 'danger')
@@ -300,39 +305,41 @@ def log_climb():
 def log_standing():
     try:
         minutes = int(request.form['minutes'])
-        notes = request.form.get('notes', '')
         
         if minutes <= 0:
             flash('Please enter a valid number of minutes', 'danger')
             return redirect(url_for('standing_dashboard'))
 
+        # Check if it's peak hour for multiplier
+        multiplier = get_points_multiplier()
+        points = minutes * multiplier
+        
         # Create standing log
-        log = StandingLog(user_id=current_user.id, minutes=minutes, notes=notes)
+        log = StandingLog(user_id=current_user.id, minutes=minutes, points=points)
 
-        # Update user stats
-        current_user.update_standing_time(minutes)
+        # Update user stats with multiplier
+        current_user.total_standing_time += minutes
+        current_user.total_points += points
 
         # Update house points
         house = House.query.filter_by(name=current_user.house).first()
         if not house:
             raise ValueError('Invalid house association')
 
-        # Check if house has the update_standing_time method
-        if hasattr(house, 'update_standing_time'):
-            house.update_standing_time(minutes)
+        # Update house stats with multiplier
+        house.total_points += points
+        if hasattr(house, 'total_standing_time'):
+            house.total_standing_time += minutes
         else:
-            # Fallback if the method doesn't exist
-            house.total_points += minutes
-            if hasattr(house, 'total_standing_time'):
-                house.total_standing_time += minutes
-            else:
-                app.logger.warning(f"House {house.name} doesn't have total_standing_time attribute")
+            app.logger.warning(f"House {house.name} doesn't have total_standing_time attribute")
 
         db.session.add(log)
         db.session.commit()
 
-        log_activity(app, current_user.id, 'Standing Time Logged', f'{minutes} minutes')
-        flash(f'Added {minutes} points to {current_user.house} house for standing time!', 'success')
+        # Add multiplier info to the message if applicable
+        multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
+        log_activity(app, current_user.id, 'Standing Time Logged', f'{minutes} minutes{multiplier_text}')
+        flash(f'Added {points} points to {current_user.house} house for standing time!{multiplier_text}', 'success')
 
     except ValueError as e:
         flash('Please enter a valid number of minutes', 'danger')
@@ -380,8 +387,11 @@ def upload_screenshot():
                 flights = result.get('flights')
                 timestamp_str = result.get('timestamp')
                 
+                # Check if it's peak hour for multiplier
+                multiplier = get_points_multiplier()
+                points = flights * 10 * multiplier
+                
                 # Log the climb
-                points = flights * 10
                 log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
                 
                 # Update user stats
@@ -397,8 +407,10 @@ def upload_screenshot():
                 db.session.add(log)
                 db.session.commit()
                 
-                log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights')
-                flash(f'Successfully processed screenshot! Added {points} points for {flights} flights.', 'success')
+                # Add multiplier info to the message if applicable
+                multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
+                log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights{multiplier_text}')
+                flash(f'Successfully processed screenshot! Added {points} points for {flights} flights.{multiplier_text}', 'success')
             else:
                 flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
         else:
@@ -442,32 +454,43 @@ def upload_standing_screenshot():
             result = image_analyzer.analyze_standing_image(file)
             
             if result.get('success'):
-                minutes = result.get('minutes')
-                timestamp_str = result.get('timestamp')
+                minutes = result.get('minutes', 0)
+            
+                if minutes <= 0:
+                    flash('Could not detect standing time from the screenshot', 'danger')
+                    return redirect(url_for('standing_dashboard'))
+                
+                # Check if it's peak hour for multiplier
+                multiplier = get_points_multiplier()
+                points = minutes * multiplier
                 
                 # Log the standing time
-                log = StandingLog(user_id=current_user.id, minutes=minutes, 
-                                 notes=f"Automatically detected from screenshot")
+                log = StandingLog(user_id=current_user.id, minutes=minutes, points=points)
                 
                 # Update user stats
-                current_user.update_standing_time(minutes)
+                current_user.total_standing_time += minutes
+                current_user.total_points += points
                 
                 # Update house points
                 house = House.query.filter_by(name=current_user.house).first()
                 if house:
-                    house.update_standing_time(minutes)
+                    house.total_points += points
+                    if hasattr(house, 'total_standing_time'):
+                        house.total_standing_time += minutes
                 
                 db.session.add(log)
                 db.session.commit()
                 
-                log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{minutes} minutes')
-                flash(f'Successfully processed screenshot! Added {minutes} points for {minutes} minutes of standing.', 'success')
+                # Add multiplier info to the message if applicable
+                multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
+                log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{minutes} minutes{multiplier_text}')
+                flash(f'Successfully processed screenshot! Added {points} points for {minutes} minutes of standing time.{multiplier_text}', 'success')
             else:
                 flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
         else:
             flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
     except Exception as e:
-        app.logger.error(f'Screenshot upload error: {str(e)}')
+        app.logger.error(f'Standing screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')
     
     return redirect(url_for('standing_dashboard'))
@@ -559,7 +582,13 @@ def internal_error(error):
 def utility_processor():
     def get_house_count():
         return House.query.count()
-    return dict(get_house_count=get_house_count)
+    
+    # Add peak hour information to all templates
+    return {
+        'get_house_count': get_house_count,
+        'is_peak_hour': is_peak_hour(),
+        'peak_hours_message': get_peak_hours_message()
+    }
 
 @app.teardown_appcontext
 def shutdown_session(exception=None):
@@ -567,22 +596,3 @@ def shutdown_session(exception=None):
 
 if __name__ == '__main__':
     app.run(debug=True)
-
-# Open a Python shell in your project directory
-# Then run:
-from app import app, db
-from models import User
-from utils.security import PasswordManager
-
-with app.app_context():
-    # Check if admin exists
-    admin = User.query.filter(User.username.ilike('Admin')).first()
-    print(f"Admin exists: {admin is not None}")
-    
-    if not admin:
-        # Create new admin
-        admin = User(username='Admin', house='Admin', is_admin=True)
-        admin.set_password('123')
-        db.session.add(admin)
-        db.session.commit()
-        print("Admin user created")

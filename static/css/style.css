@@ -19,10 +19,13 @@ body {
 
 .house-card {
     padding: 20px;
-    margin: 10px;
+    margin: 0;
     border-radius: 10px;
     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     transition: transform 0.3s ease;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 .house-card:hover {
@@ -48,6 +51,33 @@ body {
     padding: 20px;
     margin-bottom: 20px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* House Rankings Card */
+.house-rankings-card {
+    height: calc(100% - 40px); /* Adjust for the margin-bottom of stats-card */
+    display: flex;
+    flex-direction: column;
+}
+
+.house-grid {
+    flex-grow: 1;
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0 -10px; /* Counteract the padding in house-col */
+    height: calc(100% - 40px); /* Adjust for the h3 heading */
+}
+
+.house-col {
+    padding: 10px;
+    height: 33.333%; /* For 6 houses in 2 columns (3 rows) */
+    margin-bottom: 0;
+}
+
+/* Empty log items for consistent height */
+.empty-log-item {
+    height: 58px; /* Approximate height of a log item */
+    visibility: hidden;
 }
 
 /* Analytics Dashboard Styles */
@@ -90,6 +120,52 @@ body {
     background-color: #fff;
 }
 
+/* Peak Hours Styles */
+.peak-hour-badge {
+    animation: pulse 2s infinite;
+}
+
+.peak-hours-banner {
+    animation: fadeInOut 5s infinite;
+}
+
+/* Collapsible logs styles */
+.collapse-text-hide {
+    display: none;
+}
+
+[aria-expanded="true"] .collapse-text-show {
+    display: none;
+}
+
+[aria-expanded="true"] .collapse-text-hide {
+    display: inline;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+@keyframes fadeInOut {
+    0% {
+        opacity: 0.8;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.8;
+    }
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .points-display {
@@ -98,5 +174,18 @@ body {
     
     .chart-container {
         min-height: 300px;
+    }
+    
+    .house-rankings-card {
+        height: auto;
+    }
+    
+    .house-grid {
+        height: auto;
+    }
+    
+    .house-col {
+        height: auto;
+        margin-bottom: 20px;
     }
 }
