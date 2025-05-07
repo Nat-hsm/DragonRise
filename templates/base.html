@@ -17,6 +17,13 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
+                    {% if is_peak_hour %}
+                    <li class="nav-item">
+                        <span class="nav-link peak-hour-badge">
+                            <span class="badge bg-warning text-dark">2x Points Active!</span>
+                        </span>
+                    </li>
+                    {% endif %}
                     {% if current_user.is_authenticated %}
                         {% if current_user.is_admin %}
                             <li class="nav-item">
@@ -50,6 +57,13 @@
     </nav>
 
     <div class="container mt-4">
+        {% if is_peak_hour %}
+        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <strong>2x Points Active!</strong> {{ peak_hours_message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+        
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}

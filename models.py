@@ -1,5 +1,5 @@
 from flask_login import UserMixin
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import Index
 from extensions import db  # Import from extensions instead of app
 
@@ -146,8 +146,10 @@ class ClimbLog(db.Model):
 
     @property
     def formatted_timestamp(self):
-        """Return formatted timestamp"""
-        return self.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        """Return formatted timestamp in local time (UTC+8)"""
+        # Convert UTC time to local time (UTC+8)
+        local_time = self.timestamp + timedelta(hours=8)
+        return local_time.strftime('%Y-%m-%d %H:%M:%S')
 
     def __repr__(self):
         return f'<ClimbLog {self.user_id} - {self.flights} flights>'
@@ -170,17 +172,19 @@ class StandingLog(db.Model):
         Index('idx_standing_timestamp', 'timestamp'),
     )
 
-    def __init__(self, user_id, minutes, notes=None):
+    def __init__(self, user_id, minutes, points=None, notes=None):
         self.user_id = user_id
         self.minutes = minutes
-        self.points = minutes  # 1 point per minute of standing
+        self.points = points if points is not None else minutes  # Allow custom points for multipliers
         if notes:
             self.notes = notes
 
     @property
     def formatted_timestamp(self):
-        """Return formatted timestamp"""
-        return self.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        """Return formatted timestamp in local time (UTC+8)"""
+        # Convert UTC time to local time (UTC+8)
+        local_time = self.timestamp + timedelta(hours=8)
+        return local_time.strftime('%Y-%m-%d %H:%M:%S')
 
     def __repr__(self):
         return f'<StandingLog {self.user_id} - {self.minutes} minutes>'
@@ -259,7 +263,9 @@ def get_user_stats(user_id):
 def init_admin():
     """Initialize or update admin user"""
     from utils.security import PasswordManager
-    
+    admin = User.query.filter_by(username='Admin').first()
+    if not admin:
+=======
     admin = User.query.filter(User.username.ilike('Admin')).first()
     if admin:
         # Update existing admin
@@ -275,7 +281,7 @@ def init_admin():
     else:
         # Create new admin
         admin = User(username='Admin', house='Admin', is_admin=True)
-        admin.set_password('123')
+        admin.set_password('admin123')
         db.session.add(admin)
         try:
             db.session.commit()
