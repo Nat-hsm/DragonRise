@@ -207,6 +207,99 @@ def admin_dashboard():
                          total_stats=total_stats,
                          activity_logs=activity_logs)
 
+@app.route('/admin-dashboard/delete-user', methods=['POST'])
+@login_required
+@admin_required
+def delete_user():
+    try:
+        user_id = request.form.get('user_id')
+        if not user_id:
+            flash('User ID is required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Find the user
+        user = User.query.get_or_404(int(user_id))
+        
+        # Don't allow deleting the admin user
+        if user.is_admin:
+            flash('Cannot delete admin user', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Get user's house to update member count
+        house = House.query.filter_by(name=user.house).first()
+        if house:
+            house.remove_member()
+            
+            # Subtract user's points from house total
+            house.total_points -= user.total_points
+            house.total_flights -= user.total_flights
+            if hasattr(house, 'total_standing_time'):
+                house.total_standing_time -= user.total_standing_time
+        
+        # Delete user's logs
+        ClimbLog.query.filter_by(user_id=user_id).delete()
+        StandingLog.query.filter_by(user_id=user_id).delete()
+        
+        # Delete user
+        username = user.username  # Store for logging
+        db.session.delete(user)
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'User Deleted', f'User {username} was deleted')
+        flash(f'User {username} has been deleted', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error deleting user: {str(e)}")
+        flash('An error occurred while deleting the user', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/reset-house', methods=['POST'])
+@login_required
+@admin_required
+def reset_house():
+    try:
+        house_id = request.form.get('house_id')
+        if not house_id:
+            flash('House ID is required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Find the house
+        house = House.query.get_or_404(int(house_id))
+        
+        # Store house name for logging
+        house_name = house.name
+        
+        # Reset house statistics
+        old_points = house.total_points
+        house.total_points = 0
+        house.total_flights = 0
+        house.total_standing_time = 0
+        
+        # Reset points for all users in this house
+        users_in_house = User.query.filter_by(house=house.name).all()
+        for user in users_in_house:
+            if not user.is_admin:  # Don't reset admin user stats
+                user.total_points = 0
+                user.total_flights = 0
+                user.total_standing_time = 0
+        
+        # Commit changes
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'House Reset', f'House {house_name} points reset from {old_points} to 0')
+        flash(f'House {house_name} has been reset. All points and statistics are now zero.', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error resetting house: {str(e)}")
+        flash('An error occurred while resetting the house', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
 @app.route('/analytics-dashboard')
 @login_required
 def analytics_dashboard():
