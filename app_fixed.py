@@ -15,7 +15,7 @@ from utils.security import init_security, PasswordManager, require_api_key, admi
 from utils.logging_config import LogConfig, log_activity
 from utils.database import setup_database
 from utils.image_analyzer import ImageAnalyzer
-from utils.time_utils import is_peak_hour, get_points_multiplier, get_peak_hours_message, get_current_peak_hour_info
+from utils.time_utils import is_peak_hour, get_points_multiplier, get_peak_hours_message
 from config import get_config, validate_config
 from extensions import db, login_manager, migrate
 
@@ -500,7 +500,7 @@ def log_climb():
         db.session.commit()
 
         # Add multiplier info to the message if applicable
-        multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+        multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
         log_activity(app, current_user.id, 'Climb Logged', f'{flights} flights{multiplier_text}')
         flash(f'Added {points} points to {current_user.house} house!{multiplier_text}', 'success')
 
@@ -550,7 +550,7 @@ def log_standing():
         db.session.commit()
 
         # Add multiplier info to the message if applicable
-        multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+        multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
         log_activity(app, current_user.id, 'Standing Time Logged', f'{minutes} minutes{multiplier_text}')
         flash(f'Added {points} points to {current_user.house} house for standing time!{multiplier_text}', 'success')
 
@@ -621,7 +621,7 @@ def upload_screenshot():
                 db.session.commit()
                 
                 # Add multiplier info to the message if applicable
-                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+                multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
                 log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights{multiplier_text}')
                 flash(f'Successfully processed screenshot! Added {points} points for {flights} flights.{multiplier_text}', 'success')
             else:
@@ -695,7 +695,7 @@ def upload_standing_screenshot():
                 db.session.commit()
                 
                 # Add multiplier info to the message if applicable
-                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+                multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
                 log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{minutes} minutes{multiplier_text}')
                 flash(f'Successfully processed screenshot! Added {points} points for {minutes} minutes of standing time.{multiplier_text}', 'success')
             else:
@@ -762,12 +762,9 @@ def utility_processor():
         return House.query.count()
     
     # Add peak hour information to all templates
-    is_peak, multiplier, peak_name = get_current_peak_hour_info()
     return {
         'get_house_count': get_house_count,
-        'is_peak_hour': is_peak,
-        'peak_hour_multiplier': multiplier,
-        'peak_hour_name': peak_name,
+        'is_peak_hour': is_peak_hour(),
         'peak_hours_message': get_peak_hours_message()
     }
 

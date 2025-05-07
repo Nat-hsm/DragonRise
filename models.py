@@ -288,3 +288,73 @@ def init_admin():
             except Exception as e:
                 db.session.rollback()
                 raise e
+class PeakHourSetting(db.Model):
+    """Peak hour settings model for configurable peak hours"""
+    __tablename__ = 'peak_hour_settings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), nullable=False)  # e.g., "Morning Peak", "Lunch Peak"
+    start_time = db.Column(db.Time, nullable=False)
+    end_time = db.Column(db.Time, nullable=False)
+    multiplier = db.Column(db.Integer, default=2)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __init__(self, name, start_time, end_time, multiplier=2, is_active=True):
+        self.name = name
+        self.start_time = start_time
+        self.end_time = end_time
+        self.multiplier = multiplier
+        self.is_active = is_active
+    
+    @property
+    def formatted_time_range(self):
+        """Return formatted time range string"""
+        start_str = self.start_time.strftime('%I:%M%p').lstrip('0').lower()
+        end_str = self.end_time.strftime('%I:%M%p').lstrip('0').lower()
+        return f"{start_str}-{end_str}"
+    
+    def __repr__(self):
+        return f'<PeakHourSetting {self.name}: {self.formatted_time_range}>'
+
+
+def get_peak_hour_settings():
+    """Get all active peak hour settings"""
+    return PeakHourSetting.query.order_by(PeakHourSetting.start_time).all()
+
+
+def init_peak_hours():
+    """Initialize default peak hour settings if none exist"""
+    if PeakHourSetting.query.count() == 0:
+        # Define default peak hours
+        morning_peak = PeakHourSetting(
+            name="Morning Peak",
+            start_time=time(8, 45),
+            end_time=time(9, 15),
+            multiplier=2,
+            is_active=True
+        )
+        
+        lunch_peak = PeakHourSetting(
+            name="Lunch Peak",
+            start_time=time(11, 30),
+            end_time=time(13, 0),
+            multiplier=2,
+            is_active=True
+        )
+        
+        evening_peak = PeakHourSetting(
+            name="Evening Peak",
+            start_time=time(17, 30),
+            end_time=time(18, 30),
+            multiplier=2,
+            is_active=True
+        )
+        
+        db.session.add_all([morning_peak, lunch_peak, evening_peak])
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            raise e

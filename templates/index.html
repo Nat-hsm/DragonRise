@@ -6,11 +6,11 @@
     
     {% if is_peak_hour %}
     <div class="peak-hours-banner mb-4">
-        <div class="card bg-warning text-dark">
+        <div class="card bg-orange text-dark">
             <div class="card-body">
-                <h3 class="card-title">2x Points Active!</h3>
+                <h3 class="card-title">{{ peak_hour_multiplier }}x Points Active!</h3>
                 <p class="card-text">{{ peak_hours_message }}</p>
-                <p class="card-text">Log your climbs and standing time now for double points!</p>
+                <p class="card-text">Log your climbs and standing time now for {{ peak_hour_multiplier }}x points!</p>
             </div>
         </div>
     </div>
@@ -36,4 +36,10 @@
     </div>
     {% endif %}
 </div>
+
+<style>
+.bg-orange {
+    background-color: #fd7e14;
+}
+</style>
 {% endblock %}
