@@ -595,4 +595,13 @@ def shutdown_session(exception=None):
     db.session.remove()
 
 if __name__ == '__main__':
+    # Initialize the admin user on startup
+    with app.app_context():
+        result = init_admin()
+        if result == "created":
+            print("Admin user created")
+        elif result == "updated":
+            print("Admin user credentials updated")
+        else:
+            print("Admin user already exists")
     app.run(debug=True)

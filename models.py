@@ -261,18 +261,31 @@ def get_user_stats(user_id):
 
 
 def init_admin():
-    """Initialize admin user"""
+    """Initialize or update admin user"""
     from utils.security import PasswordManager
-    
     admin = User.query.filter_by(username='Admin').first()
     if not admin:
+=======
+    admin = User.query.filter(User.username.ilike('Admin')).first()
+    if admin:
+        # Update existing admin
+        admin.set_password('123')
+        admin.is_admin = True
+        admin.house = 'Admin'
+        try:
+            db.session.commit()
+            return "updated"
+        except Exception as e:
+            db.session.rollback()
+            raise e
+    else:
+        # Create new admin
         admin = User(username='Admin', house='Admin', is_admin=True)
         admin.set_password('admin123')
         db.session.add(admin)
         try:
             db.session.commit()
-            return True
+            return "created"
         except Exception as e:
             db.session.rollback()
             raise e
-    return False
