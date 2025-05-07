@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 def is_peak_hour():
     """
@@ -8,7 +8,8 @@ def is_peak_hour():
     Returns:
         bool: True if current time is within peak hours, False otherwise
     """
-    now = datetime.now().time()
+    # Get current time in local timezone (UTC+8)
+    now = (datetime.utcnow() + timedelta(hours=8)).time()
     
     # Define peak hour ranges
     morning_peak_start = time(8, 45)
@@ -45,3 +46,15 @@ def get_peak_hours_message():
         str: Description of peak hours
     """
     return "Peak Hours (2x points): 8:45am-9:15am, 11:30am-1:00pm, and 5:30pm-6:30pm"
+
+def get_local_time(utc_time):
+    """
+    Convert UTC time to local time (UTC+8)
+    
+    Args:
+        utc_time: UTC datetime object
+        
+    Returns:
+        datetime: Local time (UTC+8)
+    """
+    return utc_time + timedelta(hours=8)

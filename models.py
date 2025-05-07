@@ -1,5 +1,5 @@
 from flask_login import UserMixin
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import Index
 from extensions import db  # Import from extensions instead of app
 
@@ -146,8 +146,10 @@ class ClimbLog(db.Model):
 
     @property
     def formatted_timestamp(self):
-        """Return formatted timestamp"""
-        return self.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        """Return formatted timestamp in local time (UTC+8)"""
+        # Convert UTC time to local time (UTC+8)
+        local_time = self.timestamp + timedelta(hours=8)
+        return local_time.strftime('%Y-%m-%d %H:%M:%S')
 
     def __repr__(self):
         return f'<ClimbLog {self.user_id} - {self.flights} flights>'
@@ -179,8 +181,10 @@ class StandingLog(db.Model):
 
     @property
     def formatted_timestamp(self):
-        """Return formatted timestamp"""
-        return self.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        """Return formatted timestamp in local time (UTC+8)"""
+        # Convert UTC time to local time (UTC+8)
+        local_time = self.timestamp + timedelta(hours=8)
+        return local_time.strftime('%Y-%m-%d %H:%M:%S')
 
     def __repr__(self):
         return f'<StandingLog {self.user_id} - {self.minutes} minutes>'
