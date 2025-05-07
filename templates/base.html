@@ -20,7 +20,7 @@
                     {% if is_peak_hour %}
                     <li class="nav-item">
                         <span class="nav-link peak-hour-badge">
-                            <span class="badge bg-warning text-dark">2x Points Active!</span>
+                            <span class="badge bg-warning text-dark">{{ peak_hour_multiplier }}x Points Active!</span>
                         </span>
                     </li>
                     {% endif %}
@@ -59,7 +59,7 @@
     <div class="container mt-4">
         {% if is_peak_hour %}
         <div class="alert alert-warning alert-dismissible fade show" role="alert">
-            <strong>2x Points Active!</strong> {{ peak_hours_message }}
+            <strong>{{ peak_hour_multiplier }}x Points Active!</strong> {{ peak_hours_message }}
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
         {% endif %}

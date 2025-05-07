@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="row">
-    <div class="col-md-12 mb-4">
+    <div class="col-md-12 mb-2">
         <div class="stats-card">
             <h2>Admin Dashboard</h2>
             <p class="text-muted">Manage DragonRise system</p>
@@ -9,7 +9,7 @@
     </div>
 </div>
 
-<div class="row">
+<div class="row mt-2">
     <div class="col-md-6">
         <div class="stats-card">
             <h3>User Management</h3>
@@ -87,7 +87,139 @@
     </div>
 </div>
 
-<div class="row">
+<div class="row mt-3">
+    <div class="col-md-12">
+        <div class="stats-card">
+            <h3>Peak Hours Management</h3>
+            <p class="text-muted">Configure peak hours when points are multiplied</p>
+            
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Start Time</th>
+                            <th>End Time</th>
+                            <th>Multiplier</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for setting in peak_hours %}
+                        <tr>
+                            <td>{{ setting.name }}</td>
+                            <td>{{ setting.start_time.strftime('%I:%M %p') }}</td>
+                            <td>{{ setting.end_time.strftime('%I:%M %p') }}</td>
+                            <td>{{ setting.multiplier }}x</td>
+                            <td>
+                                {% if setting.is_active %}
+                                <span class="badge bg-success">Active</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Inactive</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editPeakHourModal{{ setting.id }}">
+                                    Edit
+                                </button>
+                                <form action="/admin-dashboard/toggle-peak-hour" method="POST" style="display:inline;">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="setting_id" value="{{ setting.id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-{{ 'warning' if setting.is_active else 'success' }}">
+                                        {{ 'Deactivate' if setting.is_active else 'Activate' }}
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        
+                        <!-- Edit Modal for each peak hour setting -->
+                        <div class="modal fade" id="editPeakHourModal{{ setting.id }}" tabindex="-1" aria-labelledby="editPeakHourModalLabel{{ setting.id }}" aria-hidden="true">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="editPeakHourModalLabel{{ setting.id }}">Edit Peak Hour</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <form action="/admin-dashboard/edit-peak-hour" method="POST">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="setting_id" value="{{ setting.id }}">
+                                        <div class="modal-body">
+                                            <div class="mb-3">
+                                                <label for="name{{ setting.id }}" class="form-label">Name</label>
+                                                <input type="text" class="form-control" id="name{{ setting.id }}" name="name" value="{{ setting.name }}" required>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="start_time{{ setting.id }}" class="form-label">Start Time</label>
+                                                <input type="time" class="form-control" id="start_time{{ setting.id }}" name="start_time" value="{{ setting.start_time.strftime('%H:%M') }}" required>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="end_time{{ setting.id }}" class="form-label">End Time</label>
+                                                <input type="time" class="form-control" id="end_time{{ setting.id }}" name="end_time" value="{{ setting.end_time.strftime('%H:%M') }}" required>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="multiplier{{ setting.id }}" class="form-label">Multiplier</label>
+                                                <input type="number" class="form-control" id="multiplier{{ setting.id }}" name="multiplier" value="{{ setting.multiplier }}" min="1" max="10" required>
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                            <button type="submit" class="btn btn-primary">Save Changes</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <button type="button" class="btn btn-primary mt-3" data-bs-toggle="modal" data-bs-target="#addPeakHourModal">
+                Add New Peak Hour
+            </button>
+            
+            <!-- Add New Peak Hour Modal -->
+            <div class="modal fade" id="addPeakHourModal" tabindex="-1" aria-labelledby="addPeakHourModalLabel" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="addPeakHourModalLabel">Add New Peak Hour</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <form action="/admin-dashboard/add-peak-hour" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label for="name" class="form-label">Name</label>
+                                    <input type="text" class="form-control" id="name" name="name" placeholder="e.g., Morning Peak" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="start_time" class="form-label">Start Time</label>
+                                    <input type="time" class="form-control" id="start_time" name="start_time" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="end_time" class="form-label">End Time</label>
+                                    <input type="time" class="form-control" id="end_time" name="end_time" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="multiplier" class="form-label">Multiplier</label>
+                                    <input type="number" class="form-control" id="multiplier" name="multiplier" value="2" min="1" max="10" required>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-primary">Add Peak Hour</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-3">
     <div class="col-md-12">
         <div class="stats-card">
             <h3>System Statistics</h3>
@@ -122,7 +254,7 @@
     </div>
 </div>
 
-<div class="row">
+<div class="row mt-3">
     <div class="col-md-12">
         <div class="stats-card">
             <h3>Recent Activity</h3>
