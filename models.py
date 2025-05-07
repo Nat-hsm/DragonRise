@@ -1,5 +1,5 @@
 from flask_login import UserMixin
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, time, timedelta
 from sqlalchemy import Index
 from extensions import db  # Import from extensions instead of app
 
