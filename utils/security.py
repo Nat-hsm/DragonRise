@@ -22,10 +22,10 @@ def init_security(app):
     if isinstance(default_limits, str):
         default_limits = default_limits.split(';')
     
-    # Initialize rate limiter with app configuration values
+    # Initialize rate limiter with app configuration values - FIXED VERSION
     limiter = Limiter(
-        app,
-        key_func=get_remote_address,
+        get_remote_address,  # key_func as first positional argument
+        app=app,  # app as a keyword argument
         default_limits=default_limits,
         storage_uri=app.config.get('RATELIMIT_STORAGE_URL', "memory://"),
         strategy="fixed-window"  # This is a valid strategy

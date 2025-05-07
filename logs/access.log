@@ -10,3 +10,27 @@
 2025-04-25 01:06:07,150 - app - INFO - 2025-04-24 17:06:07 - User 1 - Registration - Success
 2025-04-25 01:06:11,867 - app - INFO - 2025-04-24 17:06:11 - User 1 - Login - Success
 2025-04-25 01:06:22,596 - app - ERROR - Climb logging error: __init__() got an unexpected keyword argument 'points'
+2025-05-08 00:47:27,139 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-08 00:47:27,141 - app - INFO - Database connection successful
+2025-05-08 00:47:27,141 - app - INFO - Database setup complete
+2025-05-08 00:47:27,152 - app - INFO - Initializing database...
+2025-05-08 00:47:27,153 - app - INFO - Database tables created
+2025-05-08 00:47:27,163 - app - INFO - Houses initialized
+2025-05-08 00:47:27,887 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-08 00:47:27,889 - app - INFO - Database connection successful
+2025-05-08 00:47:27,889 - app - INFO - Database setup complete
+2025-05-08 00:47:27,899 - app - INFO - Initializing database...
+2025-05-08 00:47:27,901 - app - INFO - Database tables created
+2025-05-08 00:47:27,910 - app - INFO - Houses initialized
+2025-05-08 01:06:42,770 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-08 01:06:42,772 - app - INFO - Database connection successful
+2025-05-08 01:06:42,772 - app - INFO - Database setup complete
+2025-05-08 01:06:42,784 - app - INFO - Initializing database...
+2025-05-08 01:06:42,787 - app - INFO - Database tables created
+2025-05-08 01:06:42,800 - app - INFO - Houses initialized
+2025-05-08 01:06:43,701 - app - INFO - Connecting to database: sqlite:///dragonrise.db
+2025-05-08 01:06:43,703 - app - INFO - Database connection successful
+2025-05-08 01:06:43,703 - app - INFO - Database setup complete
+2025-05-08 01:06:43,719 - app - INFO - Initializing database...
+2025-05-08 01:06:43,721 - app - INFO - Database tables created
+2025-05-08 01:06:43,733 - app - INFO - Houses initialized
