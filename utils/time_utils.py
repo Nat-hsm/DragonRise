@@ -104,7 +104,6 @@ def get_current_peak_hour_info():
     """
     # Get current time in local timezone (UTC+8)
     now = (datetime.utcnow() + timedelta(hours=8)).time()
-    current_app.logger.info(f"Current time (UTC+8): {now.strftime('%H:%M:%S')}")
     
     try:
         # Try to get peak hour settings from database
@@ -115,16 +114,13 @@ def get_current_peak_hour_info():
         if not peak_hours:
             is_peak, multiplier = _is_peak_hour_default(now)
             name = "Peak Hour" if is_peak else ""
-            current_app.logger.info(f"Using default peak hour settings: {is_peak}, {multiplier}, {name}")
             return (is_peak, multiplier, name)
         
         # Check if current time is within any peak hour range
         for setting in peak_hours:
             if setting.is_active and setting.start_time <= now <= setting.end_time:
-                current_app.logger.info(f"Found active peak hour: {setting.name}, {setting.multiplier}x")
                 return (True, setting.multiplier, setting.name)
         
-        current_app.logger.info("No active peak hour found")
         return (False, 1, "")
     except Exception as e:
         # If there's an error, fall back to defaults

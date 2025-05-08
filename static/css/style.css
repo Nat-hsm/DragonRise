@@ -228,3 +228,25 @@ body {
         margin-bottom: 20px;
     }
 }
+/* Active nav link styling */
+.navbar-dark .navbar-nav .nav-link.active {
+    color: #ffffff;
+    font-weight: bold;
+}
+/* Loading spinner */
+.loading-spinner {
+    display: none;
+    text-align: center;
+    margin-top: 10px;
+}
+
+.loading-spinner .spinner-border {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 8px;
+}
+
+.loading-text {
+    display: inline-block;
+    vertical-align: middle;
+}

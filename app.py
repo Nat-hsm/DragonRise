@@ -936,17 +936,7 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg'})
 
-if __name__ == '__main__':
-    # Initialize the admin user on startup
-    with app.app_context():
-        result = init_admin()
-        if result == "created":
-            print("Admin user created")
-        elif result == "updated":
-            print("Admin user credentials updated")
-        else:
-            print("Admin user already exists")
-    app.run(debug=True)
+
 @app.route('/debug/peak-hour')
 def debug_peak_hour():
     from utils.time_utils import is_peak_hour, get_points_multiplier, get_current_peak_hour_info
@@ -993,8 +983,6 @@ def utility_processor():
     is_peak = peak_info[0] if isinstance(peak_info, tuple) else peak_info
     multiplier = peak_info[1] if isinstance(peak_info, tuple) and len(peak_info) > 1 else 2
     peak_name = peak_info[2] if isinstance(peak_info, tuple) and len(peak_info) > 2 else ""
-    
-    app.logger.info(f"Peak hour info: {peak_info}, is_peak: {is_peak}, multiplier: {multiplier}")
     
     return {
         'get_house_count': get_house_count,

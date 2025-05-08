@@ -19,31 +19,43 @@ class LogConfig:
         self.setup_security_logging()
 
     def setup_error_logging(self):
-        error_handler = RotatingFileHandler(
-            'logs/error.log',
-            maxBytes=10240,
-            backupCount=10
-        )
+        # Use FileHandler instead of RotatingFileHandler on Windows to avoid file access issues
+        if os.name == 'nt':  # Windows
+            error_handler = logging.FileHandler('logs/error.log')
+        else:
+            error_handler = RotatingFileHandler(
+                'logs/error.log',
+                maxBytes=10240,
+                backupCount=10
+            )
         error_handler.setLevel(logging.ERROR)
         error_handler.setFormatter(self.get_formatter())
         self.app.logger.addHandler(error_handler)
 
     def setup_access_logging(self):
-        access_handler = RotatingFileHandler(
-            'logs/access.log',
-            maxBytes=10240,
-            backupCount=10
-        )
+        # Use FileHandler instead of RotatingFileHandler on Windows to avoid file access issues
+        if os.name == 'nt':  # Windows
+            access_handler = logging.FileHandler('logs/access.log')
+        else:
+            access_handler = RotatingFileHandler(
+                'logs/access.log',
+                maxBytes=10240,
+                backupCount=10
+            )
         access_handler.setLevel(logging.INFO)
         access_handler.setFormatter(self.get_formatter())
         self.app.logger.addHandler(access_handler)
 
     def setup_security_logging(self):
-        security_handler = RotatingFileHandler(
-            'logs/security.log',
-            maxBytes=10240,
-            backupCount=10
-        )
+        # Use FileHandler instead of RotatingFileHandler on Windows to avoid file access issues
+        if os.name == 'nt':  # Windows
+            security_handler = logging.FileHandler('logs/security.log')
+        else:
+            security_handler = RotatingFileHandler(
+                'logs/security.log',
+                maxBytes=10240,
+                backupCount=10
+            )
         security_handler.setLevel(logging.WARNING)
         security_handler.setFormatter(self.get_formatter())
         self.app.logger.addHandler(security_handler)
@@ -61,7 +73,12 @@ def log_activity(app, user_id, action, status):
     timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
     log_entry = f"{timestamp} - User {user_id} - {action} - {status}"
     
-    with open('logs/activity.log', 'a') as f:
-        f.write(log_entry + '\n')
-    
-    app.logger.info(log_entry)
+    try:
+        with open('logs/activity.log', 'a') as f:
+            f.write(log_entry + '\n')
+        
+        # Only log important activities at INFO level to reduce log volume
+        if action.startswith(('Login', 'Registration', 'Admin')):
+            app.logger.info(log_entry)
+    except Exception as e:
+        app.logger.error(f"Failed to log activity: {str(e)}")
