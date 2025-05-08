@@ -1003,3 +1003,34 @@ def utility_processor():
         'peak_hour_name': peak_name,
         'peak_hours_message': get_peak_hours_message()
     }
+@app.route('/admin-dashboard/delete-peak-hour', methods=['POST'])
+@login_required
+@admin_required
+def delete_peak_hour():
+    try:
+        setting_id = request.form.get('setting_id')
+        if not setting_id:
+            flash('Setting ID is required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Find the peak hour setting
+        from models import PeakHourSetting
+        setting = PeakHourSetting.query.get_or_404(int(setting_id))
+        
+        # Store name for logging
+        setting_name = setting.name
+        
+        # Delete the setting
+        db.session.delete(setting)
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'Peak Hour Deleted', f'Deleted peak hour: {setting_name}')
+        flash(f'Peak hour "{setting_name}" has been deleted', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error deleting peak hour: {str(e)}")
+        flash('An error occurred while deleting the peak hour', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
