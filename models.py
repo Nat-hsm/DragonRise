@@ -358,7 +358,7 @@ def init_admin():
         else:
             # Create new admin
             admin = User(username='Admin', house='Admin', is_admin=True)
-            admin.set_password('admin123')
+            admin.set_password('123')
             db.session.add(admin)
             try:
                 db.session.commit()
