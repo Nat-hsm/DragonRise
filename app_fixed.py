@@ -15,7 +15,7 @@ from utils.security import init_security, PasswordManager, require_api_key, admi
 from utils.logging_config import LogConfig, log_activity
 from utils.database import setup_database
 from utils.image_analyzer import ImageAnalyzer
-from utils.time_utils import is_peak_hour, get_points_multiplier, get_peak_hours_message
+from utils.time_utils import is_peak_hour, get_points_multiplier, get_peak_hours_message, get_current_peak_hour_info
 from config import get_config, validate_config
 from extensions import db, login_manager, migrate
 
@@ -63,7 +63,7 @@ except Exception as e:
     # Continue anyway to allow app initialization, but functionality will be limited
 
 # Import models AFTER extensions are initialized
-from models import User, House, ClimbLog, StandingLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
+from models import User, House, ClimbLog, StandingLog, StepLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
 @app.route('/')
 def index():
     houses = House.query.order_by(House.total_points.desc()).all()
@@ -172,6 +172,17 @@ def standing_dashboard():
     recent_logs = StandingLog.query.filter_by(user_id=current_user.id)\
         .order_by(StandingLog.timestamp.desc()).limit(5).all()
     return render_template('standing_dashboard.html', 
+                         houses=houses, 
+                         user=current_user, 
+                         recent_logs=recent_logs)
+
+@app.route('/steps-dashboard')
+@login_required
+def steps_dashboard():
+    houses = House.query.order_by(House.total_points.desc()).all()
+    recent_logs = StepLog.query.filter_by(user_id=current_user.id)\
+        .order_by(StepLog.timestamp.desc()).limit(5).all()
+    return render_template('steps_dashboard.html', 
                          houses=houses, 
                          user=current_user, 
                          recent_logs=recent_logs)
@@ -500,7 +511,7 @@ def log_climb():
         db.session.commit()
 
         # Add multiplier info to the message if applicable
-        multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
+        multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
         log_activity(app, current_user.id, 'Climb Logged', f'{flights} flights{multiplier_text}')
         flash(f'Added {points} points to {current_user.house} house!{multiplier_text}', 'success')
 
@@ -550,7 +561,7 @@ def log_standing():
         db.session.commit()
 
         # Add multiplier info to the message if applicable
-        multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
+        multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
         log_activity(app, current_user.id, 'Standing Time Logged', f'{minutes} minutes{multiplier_text}')
         flash(f'Added {points} points to {current_user.house} house for standing time!{multiplier_text}', 'success')
 
@@ -564,6 +575,55 @@ def log_standing():
 
     return redirect(url_for('standing_dashboard'))
 
+@app.route('/log_steps', methods=['POST'])
+@login_required
+def log_steps():
+    try:
+        steps = int(request.form['steps'])
+        if steps <= 0:
+            flash('Please enter a valid number of steps', 'danger')
+            return redirect(url_for('steps_dashboard'))
+
+        # Check if it's peak hour for multiplier
+        multiplier = get_points_multiplier()
+        points = (steps // 100) * multiplier  # 1 point per 100 steps, with multiplier
+
+        # Create step log
+        log = StepLog(user_id=current_user.id, steps=steps, points=points)
+
+        # Update user stats
+        if hasattr(current_user, 'total_steps'):
+            current_user.total_steps += steps
+            current_user.total_points += points
+
+            # Update house points
+            house = House.query.filter_by(name=current_user.house).first()
+            if not house:
+                raise ValueError('Invalid house association')
+
+            house.total_points += points
+            if hasattr(house, 'total_steps'):
+                house.total_steps += steps
+
+            db.session.add(log)
+            db.session.commit()
+
+            # Add multiplier info to the message if applicable
+            multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+            log_activity(app, current_user.id, 'Steps Logged', f'{steps} steps{multiplier_text}')
+            flash(f'Added {points} points to {current_user.house} house!{multiplier_text}', 'success')
+        else:
+            flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
+
+    except ValueError as e:
+        flash('Please enter a valid number of steps', 'danger')
+        app.logger.warning(f'Invalid steps input: {str(e)}')
+    except Exception as e:
+        flash('An error occurred while logging your steps', 'danger')
+        app.logger.error(f'Steps logging error: {str(e)}')
+        db.session.rollback()
+
+    return redirect(url_for('steps_dashboard'))
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
 def upload_screenshot():
@@ -621,7 +681,7 @@ def upload_screenshot():
                 db.session.commit()
                 
                 # Add multiplier info to the message if applicable
-                multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
+                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
                 log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights{multiplier_text}')
                 flash(f'Successfully processed screenshot! Added {points} points for {flights} flights.{multiplier_text}', 'success')
             else:
@@ -633,7 +693,6 @@ def upload_screenshot():
         flash('An error occurred while processing your screenshot', 'danger')
     
     return redirect(url_for('dashboard'))
-
 @app.route('/upload-standing-screenshot', methods=['POST'])
 @login_required
 def upload_standing_screenshot():
@@ -695,7 +754,7 @@ def upload_standing_screenshot():
                 db.session.commit()
                 
                 # Add multiplier info to the message if applicable
-                multiplier_text = f" (2x multiplier!)" if multiplier > 1 else ""
+                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
                 log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{minutes} minutes{multiplier_text}')
                 flash(f'Successfully processed screenshot! Added {points} points for {minutes} minutes of standing time.{multiplier_text}', 'success')
             else:
@@ -707,7 +766,78 @@ def upload_standing_screenshot():
         flash('An error occurred while processing your screenshot', 'danger')
     
     return redirect(url_for('standing_dashboard'))
-
+@app.route('/upload-steps-screenshot', methods=['POST'])
+@login_required
+def upload_steps_screenshot():
+    try:
+        # Check if a file was uploaded
+        if 'screenshot' not in request.files:
+            flash('No file selected', 'danger')
+            return redirect(url_for('steps_dashboard'))
+            
+        file = request.files['screenshot']
+        
+        # Check if filename is empty
+        if file.filename == '':
+            flash('No file selected', 'danger')
+            return redirect(url_for('steps_dashboard'))
+            
+        if file and allowed_file(file.filename):
+            # Create uploads directory if it doesn't exist
+            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+            
+            # Secure the filename and save file
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+            unique_filename = f"{current_user.id}_steps_{timestamp}_{filename}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            file.save(filepath)
+            
+            # Create image analyzer and process the image
+            image_analyzer = ImageAnalyzer()
+            file.seek(0)  # Reset file pointer to beginning
+            result = image_analyzer.analyze_steps_image(file)
+            
+            if result.get('success'):
+                steps = result.get('steps')
+                
+                # Check if it's peak hour for multiplier
+                multiplier = get_points_multiplier()
+                points = (steps // 100) * multiplier
+                
+                # Log the steps
+                log = StepLog(user_id=current_user.id, steps=steps, points=points)
+                
+                # Update user stats
+                if hasattr(current_user, 'total_steps'):
+                    current_user.total_steps += steps
+                    current_user.total_points += points
+                    
+                    # Update house points
+                    house = House.query.filter_by(name=current_user.house).first()
+                    if house:
+                        house.total_points += points
+                        if hasattr(house, 'total_steps'):
+                            house.total_steps += steps
+                    
+                    db.session.add(log)
+                    db.session.commit()
+                    
+                    # Add multiplier info to the message if applicable
+                    multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+                    log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{steps} steps{multiplier_text}')
+                    flash(f'Successfully processed screenshot! Added {points} points for {steps} steps.{multiplier_text}', 'success')
+                else:
+                    flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
+            else:
+                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
+        else:
+            flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
+    except Exception as e:
+        app.logger.error(f'Steps screenshot upload error: {str(e)}')
+        flash('An error occurred while processing your screenshot', 'danger')
+    
+    return redirect(url_for('steps_dashboard'))
 @app.route('/api/house_points')
 @require_api_key
 def house_points():
@@ -717,6 +847,11 @@ def house_points():
         'points': house.total_points,
         'members': house.member_count
     } for house in houses])
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
 @app.route('/health')
 def health_check():
     try:
@@ -756,25 +891,10 @@ def internal_error(error):
     db.session.rollback()
     return render_template('500.html'), 500
 
-@app.context_processor
-def utility_processor():
-    def get_house_count():
-        return House.query.count()
-    
-    # Add peak hour information to all templates
-    return {
-        'get_house_count': get_house_count,
-        'is_peak_hour': is_peak_hour(),
-        'peak_hours_message': get_peak_hours_message()
-    }
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
-
 @app.teardown_appcontext
 def shutdown_session(exception=None):
     db.session.remove()
+
 def init_db():
     """Initialize the database with required initial data"""
     app.logger.info("Initializing database...")
