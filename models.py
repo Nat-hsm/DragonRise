@@ -126,12 +126,6 @@ class House(db.Model):
         """Decrement member count"""
         if self.member_count > 0:
             self.member_count -= 1
-            
-    def update_steps(self, steps):
-        """Update house steps and points"""
-        self.total_steps += steps
-        # Add points for steps (1 point per 100 steps)
-        self.total_points += steps // 100
 
     def __repr__(self):
         return f'<House {self.name}>'
