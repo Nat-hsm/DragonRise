@@ -20,6 +20,8 @@ from utils.time_utils import is_peak_hour, get_points_multiplier, get_peak_hours
 from config import get_config, validate_config
 from extensions import db, login_manager, migrate
 from utils.security_enhancements import sanitize_input, is_safe_url, verify_user_access, user_access_required
+from utils.access_control import user_data_access_required, verify_content_type, log_access_attempt
+from utils.xss_protection import sanitize_html, sanitize_rich_text, sanitize_filename, add_xss_protection_headers
 
 # Load environment variables
 load_dotenv()
@@ -71,26 +73,65 @@ from models import User, House, ClimbLog, StandingLog, Achievement, init_houses,
 @app.after_request
 def add_security_headers(response):
     """Add security headers to HTTP response"""
-    # Content Security Policy
-    response.headers['Content-Security-Policy'] = "default-src 'self'; " \
-                                                "script-src 'self' https://cdn.jsdelivr.net; " \
-                                                "style-src 'self' https://cdn.jsdelivr.net; " \
-                                                "img-src 'self' data:; " \
-                                                "font-src 'self' https://cdn.jsdelivr.net;"
+    # Add XSS protection headers
+    response = add_xss_protection_headers(response)
     
     # Prevent clickjacking
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     
-    # XSS protection
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-    
-    # Prevent MIME type sniffing
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    
     # Referrer policy
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     
+    # HTTP Strict Transport Security (HSTS)
+    if request.is_secure:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    
+    # Feature Policy / Permissions Policy
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+    
     return response
+
+# Add template filter to sanitize output
+@app.template_filter('sanitize')
+def sanitize_template(value):
+    """Template filter to sanitize output"""
+    if isinstance(value, str):
+        return sanitize_input(value)
+    return value
+
+# Check for XSS attempts in request data
+@app.before_request
+def check_for_xss_attempts():
+    """Check for potential XSS attacks in request data"""
+    # Common XSS patterns to check for
+    xss_patterns = [
+        r'<script.*?>',
+        r'javascript:',
+        r'onerror=',
+        r'onload=',
+        r'onclick=',
+        r'onmouseover=',
+        r'eval\(',
+        r'document\.cookie',
+        r'alert\(',
+    ]
+    
+    # Check URL parameters
+    for key, value in request.args.items():
+        if isinstance(value, str):
+            for pattern in xss_patterns:
+                if re.search(pattern, value, re.IGNORECASE):
+                    app.logger.warning(f"Potential XSS attempt detected in URL parameter: {key}={value}")
+                    abort(400)  # Bad Request
+    
+    # Check form data
+    if request.form:
+        for key, value in request.form.items():
+            if isinstance(value, str):
+                for pattern in xss_patterns:
+                    if re.search(pattern, value, re.IGNORECASE):
+                        app.logger.warning(f"Potential XSS attempt detected in form data: {key}={value}")
+                        abort(400)  # Bad Request
 
 @app.route('/')
 def index():
@@ -214,12 +255,23 @@ def standing_dashboard():
                          user=current_user, 
                          recent_logs=recent_logs)
 
+@app.route('/user/<int:user_id>/stats')
+@login_required
+@user_data_access_required
+def user_stats(user_id):
+    """Get user statistics with access control"""
+    stats = get_user_stats(user_id)
+    if stats:
+        return jsonify(stats)
+    return abort(404)
+
 @app.route('/admin-dashboard')
 @login_required
 @admin_required
 def admin_dashboard():
     # Verify admin status again as an extra precaution
     if not current_user.is_admin:
+        log_access_attempt(False, "Admin Dashboard", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
         return redirect(url_for('dashboard'))
         
@@ -250,6 +302,7 @@ def admin_dashboard():
         {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M'), 'username': 'Admin', 'action': 'Login', 'details': 'Admin logged in'}
     ]
     
+    log_access_attempt(True, "Admin Dashboard", "Admin access successful")
     return render_template('admin_dashboard.html',
                          users=users,
                          houses=houses,
@@ -260,9 +313,11 @@ def admin_dashboard():
 @app.route('/admin-dashboard/delete-user', methods=['POST'])
 @login_required
 @admin_required
+@verify_content_type('application/x-www-form-urlencoded')
 def delete_user():
     # Verify admin status again as an extra precaution
     if not current_user.is_admin:
+        log_access_attempt(False, "Delete User", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
         return redirect(url_for('dashboard'))
         
@@ -284,6 +339,7 @@ def delete_user():
         
         # Don't allow deleting the admin user
         if user.is_admin:
+            log_access_attempt(False, "Delete User", f"Attempted to delete admin user: {user.username}")
             flash('Cannot delete admin user', 'danger')
             return redirect(url_for('admin_dashboard'))
         
@@ -308,6 +364,7 @@ def delete_user():
         db.session.commit()
         
         # Log the activity
+        log_access_attempt(True, "Delete User", f"User {username} was deleted")
         log_activity(app, current_user.id, 'User Deleted', f'User {username} was deleted')
         flash(f'User {username} has been deleted', 'success')
         
@@ -321,6 +378,7 @@ def delete_user():
 @app.route('/log_climb', methods=['POST'])
 @login_required
 @limiter.limit("20 per minute")  # Added rate limiting
+@verify_content_type('application/x-www-form-urlencoded')
 def log_climb():
     try:
         # Validate flights is an integer
@@ -379,6 +437,7 @@ def log_climb():
 @app.route('/log_standing', methods=['POST'])
 @login_required
 @limiter.limit("20 per minute")  # Added rate limiting
+@verify_content_type('application/x-www-form-urlencoded')
 def log_standing():
     try:
         # Validate minutes is an integer
@@ -441,6 +500,7 @@ def log_standing():
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
 @limiter.limit("10 per minute")  # Added rate limiting
+@verify_content_type('multipart/form-data')
 def upload_screenshot():
     try:
         # Check if a file was uploaded
@@ -454,6 +514,15 @@ def upload_screenshot():
         if file.filename == '':
             flash('No file selected', 'danger')
             return redirect(url_for('dashboard'))
+            
+        # Sanitize the filename
+        original_filename = file.filename
+        sanitized_filename = sanitize_filename(original_filename)
+        
+        if sanitized_filename != original_filename:
+            app.logger.warning(f"Filename sanitized: {original_filename} -> {sanitized_filename}")
+            
+        file.filename = sanitized_filename
             
         if file and allowed_file(file.filename):
             # Create uploads directory if it doesn't exist
@@ -474,6 +543,9 @@ def upload_screenshot():
                 
             file.seek(0)  # Reset file pointer to beginning
             file.save(filepath)
+            
+            # Log successful upload
+            log_access_attempt(True, "File Upload", f"File {filename} uploaded successfully")
             
             # Create image analyzer and process the image
             image_analyzer = ImageAnalyzer()
@@ -518,9 +590,11 @@ def upload_screenshot():
                 flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
         else:
             flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
+            log_access_attempt(False, "File Upload", f"Invalid file type: {file.filename}")
     except Exception as e:
         app.logger.error(f'Screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')
+        log_access_attempt(False, "File Upload", f"Error: {str(e)}")
     
     return redirect(url_for('dashboard'))
 
@@ -585,6 +659,11 @@ def forbidden_error(error):
     app.logger.warning(f"Forbidden access attempt: {request.path}")
     return render_template('404.html'), 403  # Use 404 template to not confirm existence
 
+@app.errorhandler(400)
+def bad_request_error(error):
+    app.logger.warning(f"Bad request: {request.path}")
+    return "Bad request. The server could not understand your request.", 400
+
 @app.context_processor
 def utility_processor():
     def get_house_count():
@@ -597,7 +676,8 @@ def utility_processor():
         'is_peak_hour': is_peak,
         'peak_hour_multiplier': multiplier,
         'peak_hour_name': peak_name,
-        'peak_hours_message': get_peak_hours_message()
+        'peak_hours_message': get_peak_hours_message(),
+        'sanitize': sanitize_input  # Add sanitize function to all templates
     }
 
 @login_manager.user_loader
