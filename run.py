@@ -1,11 +1,19 @@
 from app import app, init_db
+<<<<<<< HEAD
 import os
 import ssl
 import logging
+=======
+from dotenv import load_dotenv
+
+# Load environment variables before initializing the app
+load_dotenv()
+>>>>>>> 8a5a1e49eac770b48ca68f794fcf3dfea4f011c8
 
 if __name__ == '__main__':
     # Initialize database
     init_db()
+<<<<<<< HEAD
     
     # Get certificate paths
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'certificates')
@@ -38,3 +46,6 @@ if __name__ == '__main__':
         host='0.0.0.0',  # Listen on all interfaces
         port=5000        # Default Flask port
     )
+=======
+    app.run(debug=True)
+>>>>>>> 8a5a1e49eac770b48ca68f794fcf3dfea4f011c8

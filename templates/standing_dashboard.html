@@ -8,8 +8,9 @@
             <hr>
             <div class="row">
                 <div class="col-6">
-                    <h4>Total Flights</h4>
-                    <div class="points-display">{{ current_user.total_flights }}</div>
+                    <h4>Standing Time</h4>
+                    <div class="points-display">{{ current_user.total_standing_time }}</div>
+                    <p class="text-muted">minutes</p>
                 </div>
                 <div class="col-6">
                     <h4>Total Points</h4>
@@ -19,20 +20,20 @@
         </div>
 
         <div class="stats-card">
-            <h3>Log Your Climb</h3>
-            <form action="{{ url_for('log_climb') }}" method="post">
+            <h3>Log Your Standing Time</h3>
+            <form action="{{ url_for('log_standing') }}" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-3">
-                    <label for="flights" class="form-label">Number of Flights</label>
-                    <input type="number" class="form-control" id="flights" name="flights" required min="1">
+                    <label for="minutes" class="form-label">Minutes Stood</label>
+                    <input type="number" class="form-control" id="minutes" name="minutes" required min="1">
                 </div>
-                <button type="submit" class="btn btn-primary w-100">Log Climb</button>
+                <button type="submit" class="btn btn-primary w-100">Log Standing Time</button>
             </form>
             
             <div class="mt-4">
                 <h5>Upload Health App Screenshot</h5>
-                <p class="text-muted small">We can automatically detect flights from your health app</p>
-                <form action="{{ url_for('upload_screenshot') }}" method="post" enctype="multipart/form-data">
+                <p class="text-muted small">We can automatically detect standing time from your health app</p>
+                <form action="{{ url_for('upload_standing_screenshot') }}" method="post" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <input type="file" class="form-control" id="screenshot" name="screenshot" accept=".jpg,.jpeg,.png" required>
@@ -48,7 +49,7 @@
             <ul class="list-group">
                 {% for log in recent_logs[:3] %}
                 <li class="list-group-item">
-                    <span class="badge bg-primary">{{ log.flights }} flights</span>
+                    <span class="badge bg-primary">{{ log.minutes }} minutes</span>
                     <span class="badge bg-success">+{{ log.points }} points</span>
                     <small class="text-muted float-end">{{ log.formatted_timestamp }}</small>
                 </li>
@@ -65,7 +66,7 @@
                 <ul class="list-group mt-2">
                     {% for log in recent_logs[3:] %}
                     <li class="list-group-item">
-                        <span class="badge bg-primary">{{ log.flights }} flights</span>
+                        <span class="badge bg-primary">{{ log.minutes }} minutes</span>
                         <span class="badge bg-success">+{{ log.points }} points</span>
                         <small class="text-muted float-end">{{ log.formatted_timestamp }}</small>
                     </li>
@@ -85,7 +86,7 @@
             <h3>Recent Activity</h3>
             <div class="text-center py-4">
                 <p class="text-muted">No activity logged yet</p>
-                <p class="text-muted">Log your first climb to get started!</p>
+                <p class="text-muted">Log your first standing time to get started!</p>
             </div>
             <ul class="list-group d-none">
                 {% for i in range(3) %}
@@ -105,7 +106,7 @@
                     <div class="house-card {{ house.name }}">
                         <h4>{{ house.name }} House</h4>
                         <div class="points-display">{{ house.total_points }}</div>
-                        <p>Total Flights: {{ house.total_flights }}</p>
+                        <p>Standing Time: {{ house.total_standing_time|default(0) }} min</p>
                     </div>
                 </div>
                 {% endfor %}
