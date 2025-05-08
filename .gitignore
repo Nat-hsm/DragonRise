@@ -4,14 +4,16 @@ __pycache__/
 *.so
 .Python
 venv/
+env/
+.env
+.env.*
+*.egg-info/
+dist/
+build/
 
 # Flask
 instance/
 *.db
-
-# Environment variables
-.env
-.env.*
 
 # Logs
 logs/
@@ -20,87 +22,118 @@ logs/
 # IDE files
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Uploads
+# Uploads and media
 static/uploads/
-EOF# Create a clean .gitignore file
-cat > /Users/nat/Git/DragonRise/.gitignore << 'EOF'
-# Python
+media/
+
+# Certificates and security
+certificates/
+*.pem
+*.key
+*.crt
+
+# Database
+*.sqlite3
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Byte-compiled Python files (more specific)
 __pycache__/
 *.py[cod]
-*.so
-.Python
-venv/
+*$py.class
+*.__pycache__
 
-# Flask
-instance/
-*.db
+# Local development settings
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Environment variables
-.env
-.env.*
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
 
-# Logs
-logs/
-*.log
+# Package directories
+node_modules/
+jspm_packages/
 
-# IDE files
-.vscode/
+# Editor directories and files
 .idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# Uploads
-static/uploads/
-EOF# Create a clean .gitignore file
-cat > /Users/nat/Git/DragonRise/.gitignore << 'EOF'
-# Python
+# Byte-compiled Python files (more specific)
 __pycache__/
 *.py[cod]
-*.so
-.Python
-venv/
+*$py.class
+*.__pycache__
 
-# Flask
-instance/
-*.db
+# Local development settings
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Environment variables
-.env
-.env.*
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
 
-# Logs
-logs/
-*.log
+# Package directories
+node_modules/
+jspm_packages/
 
-# IDE files
-.vscode/
+# Editor directories and files
 .idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# Uploads
-static/uploads/
-EOF# Create a clean .gitignore file
-cat > /Users/nat/Git/DragonRise/.gitignore << 'EOF'
-# Python
+# Byte-compiled Python files (more specific)
 __pycache__/
 *.py[cod]
-*.so
-.Python
-venv/
+*$py.class
+*.__pycache__
 
-# Flask
-instance/
-*.db
+# Local development settings
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Environment variables
-.env
-.env.*
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
 
-# Logs
-logs/
-*.log
+# Package directories
+node_modules/
+jspm_packages/
 
-# IDE files
-.vscode/
+# Editor directories and files
 .idea/
-
-# Uploads
-static/uploads/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
