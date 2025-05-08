@@ -126,10 +126,13 @@
                                 {% endif %}
                             </td>
                             <td>
+                                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editPeakHourModal{{ setting.id }}">
+                                    Edit
+                                </button>
                                 <form action="/admin-dashboard/toggle-peak-hour" method="POST" style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <input type="hidden" name="setting_id" value="{{ setting.id }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-primary">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
                                         {% if setting.is_active %}
                                         Deactivate
                                         {% else %}
@@ -137,9 +140,6 @@
                                         {% endif %}
                                     </button>
                                 </form>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editPeakHourModal{{ setting.id }}">
-                                    Edit
-                                </button>
                                 
                                 <!-- Edit Modal -->
                                 <div class="modal fade" id="editPeakHourModal{{ setting.id }}" tabindex="-1" aria-labelledby="editPeakHourModalLabel{{ setting.id }}" aria-hidden="true">

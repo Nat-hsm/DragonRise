@@ -947,3 +947,59 @@ if __name__ == '__main__':
         else:
             print("Admin user already exists")
     app.run(debug=True)
+@app.route('/debug/peak-hour')
+def debug_peak_hour():
+    from utils.time_utils import is_peak_hour, get_points_multiplier, get_current_peak_hour_info
+    now = datetime.now()
+    utc_now = datetime.utcnow()
+    local_now = utc_now + timedelta(hours=8)
+    peak_result = is_peak_hour()
+    peak_info = get_current_peak_hour_info()
+    multiplier = get_points_multiplier()
+    
+    from models import get_peak_hour_settings
+    settings = get_peak_hour_settings()
+    
+    return jsonify({
+        'current_time': {
+            'server': now.strftime('%H:%M:%S'),
+            'utc': utc_now.strftime('%H:%M:%S'),
+            'local_utc8': local_now.strftime('%H:%M:%S')
+        },
+        'is_peak_hour': peak_result if isinstance(peak_result, bool) else peak_result[0],
+        'peak_hour_info': {
+            'is_peak': peak_info[0],
+            'multiplier': peak_info[1],
+            'name': peak_info[2] if len(peak_info) > 2 else ""
+        },
+        'multiplier': multiplier,
+        'settings': [
+            {
+                'name': s.name,
+                'start': s.start_time.strftime('%H:%M'),
+                'end': s.end_time.strftime('%H:%M'),
+                'multiplier': s.multiplier,
+                'active': s.is_active
+            } for s in settings
+        ]
+    })
+@app.context_processor
+def utility_processor():
+    def get_house_count():
+        return House.query.count()
+    
+    # Add peak hour information to all templates
+    peak_info = get_current_peak_hour_info()
+    is_peak = peak_info[0] if isinstance(peak_info, tuple) else peak_info
+    multiplier = peak_info[1] if isinstance(peak_info, tuple) and len(peak_info) > 1 else 2
+    peak_name = peak_info[2] if isinstance(peak_info, tuple) and len(peak_info) > 2 else ""
+    
+    app.logger.info(f"Peak hour info: {peak_info}, is_peak: {is_peak}, multiplier: {multiplier}")
+    
+    return {
+        'get_house_count': get_house_count,
+        'is_peak_hour': is_peak,
+        'peak_hour_multiplier': multiplier,
+        'peak_hour_name': peak_name,
+        'peak_hours_message': get_peak_hours_message()
+    }
