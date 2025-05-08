@@ -1,67 +1,77 @@
-# DragonRise - AWS Bedrock Setup Guide
+# DragonRise
 
-## AWS Bedrock Configuration
+A secure web application for tracking stair climbing and standing activities.
 
-To use the image analysis feature in DragonRise, you need to properly configure AWS Bedrock access:
+## Security Features
 
-1. **Enable Model Access**:
-   - Log in to the AWS Console
-   - Navigate to Amazon Bedrock
-   - Go to "Model access" in the left sidebar
-   - Request access to at least one of these models:
-     - Amazon Titan Text models
-     - Claude Instant
-     - Claude 3 Haiku (for image analysis)
-   - Wait for access approval (usually immediate)
+- TLS 1.2+ for secure communications
+- Input sanitization to prevent XSS attacks
+- CSRF protection for all forms
+- Secure password handling
+- Rate limiting to prevent brute force attacks
+- Security headers to prevent common web vulnerabilities
+- Environment variables for sensitive configuration
 
-2. **Update IAM Permissions**:
-   - Your IAM user needs these permissions:
-     ```json
-     {
-         "Version": "2012-10-17",
-         "Statement": [
-             {
-                 "Effect": "Allow",
-                 "Action": [
-                     "bedrock:ListFoundationModels",
-                     "bedrock:GetFoundationModel"
-                 ],
-                 "Resource": "*"
-             },
-             {
-                 "Effect": "Allow",
-                 "Action": [
-                     "bedrock:InvokeModel"
-                 ],
-                 "Resource": [
-                     "arn:aws:bedrock:*:*:foundation-model/*"
-                 ]
-             }
-         ]
-     }
-     ```
+## Setup
 
-3. **Test Your Configuration**:
-   - Run the test script: `python test_bedrock.py`
-   - Verify you can list models and invoke at least one model
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/DragonRise.git
+   cd DragonRise
+   ```
 
-## Troubleshooting
+2. Create a virtual environment:
+   ```
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
-If you encounter an "AccessDeniedException" when invoking models:
+3. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
 
-1. Check that you've enabled the model in "Model access"
-2. Verify your IAM policy includes `bedrock:InvokeModel` permission
-3. Look for any explicit deny statements in your IAM policies
-4. Try using a different model (Amazon Titan models are often enabled by default)
+4. Create environment file:
+   ```
+   cp .env.example .env
+   ```
 
-## Environment Variables
+5. Edit `.env` with your secure values:
+   ```
+   SECRET_KEY=your-secure-secret-key
+   ADMIN_PASSWORD=your-secure-admin-password
+   API_KEY=your-secure-api-key
+   DEBUG=True  # Set to False in production
+   ```
 
-Make sure these environment variables are set:
+6. Generate SSL certificates for development:
+   ```
+   python generate_cert.py
+   ```
 
-```
-AWS_ACCESS_KEY_ID=your-access-key
-AWS_SECRET_ACCESS_KEY=your-secret-key
-AWS_REGION=us-east-1
-```
+7. Run the application:
+   ```
+   python run.py
+   ```
 
-You can set these in your `.env` file or directly in your environment.
+8. Access the application:
+   ```
+   https://localhost:5000
+   ```
+
+## Security Notes
+
+- **Certificates**: SSL certificates are generated locally and not included in the repository
+- **Environment Variables**: Sensitive values are stored in `.env` which is not committed to the repository
+- **Production Deployment**: Use proper SSL certificates from a trusted CA in production
+
+## Development
+
+- The application enforces TLS 1.2 or higher
+- All user inputs are sanitized to prevent XSS attacks
+- CSRF protection is enabled for all forms
+- Rate limiting is applied to sensitive endpoints
+
+## License
+
+[MIT License](LICENSE)

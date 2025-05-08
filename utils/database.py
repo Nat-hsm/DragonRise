@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,16 @@ def setup_database(app, db):
         # Add connect_args for SQLite if needed
         if 'sqlite' in db_url:
             engine_options['connect_args'] = {"check_same_thread": False}
+            
+            # Extract file path from SQLite URL
+            if db_url.startswith('sqlite:///'):
+                db_file = db_url[10:]  # Remove 'sqlite:///'
+                
+                # Create directory if needed
+                db_dir = os.path.dirname(db_file)
+                if db_dir and not os.path.exists(db_dir):
+                    os.makedirs(db_dir)
+                    app.logger.info(f"Created database directory: {db_dir}")
         
         engine = create_engine(
             db_url,

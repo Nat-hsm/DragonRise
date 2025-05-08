@@ -5,12 +5,13 @@ from flask_wtf import FlaskForm
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.sql import text
 from sqlalchemy import create_engine, text, func
-from datetime import datetime, timedelta, timezone  # Add timezone import
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 import os
 import logging
 from werkzeug.utils import secure_filename
 import re
+import bleach  # Added for HTML sanitization
 from utils.security import init_security, PasswordManager, require_api_key, admin_required
 from utils.logging_config import LogConfig, log_activity
 from utils.database import setup_database
@@ -18,6 +19,7 @@ from utils.image_analyzer import ImageAnalyzer
 from utils.time_utils import is_peak_hour, get_points_multiplier, get_peak_hours_message, get_current_peak_hour_info
 from config import get_config, validate_config
 from extensions import db, login_manager, migrate
+from utils.security_enhancements import sanitize_input, is_safe_url, verify_user_access, user_access_required
 
 # Load environment variables
 load_dotenv()
@@ -63,7 +65,33 @@ except Exception as e:
     # Continue anyway to allow app initialization, but functionality will be limited
 
 # Import models AFTER extensions are initialized
-from models import User, House, ClimbLog, StandingLog, StepLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
+from models import User, House, ClimbLog, StandingLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
+
+# Add security headers to all responses
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to HTTP response"""
+    # Content Security Policy
+    response.headers['Content-Security-Policy'] = "default-src 'self'; " \
+                                                "script-src 'self' https://cdn.jsdelivr.net; " \
+                                                "style-src 'self' https://cdn.jsdelivr.net; " \
+                                                "img-src 'self' data:; " \
+                                                "font-src 'self' https://cdn.jsdelivr.net;"
+    
+    # Prevent clickjacking
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    
+    # XSS protection
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    
+    # Prevent MIME type sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    
+    # Referrer policy
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    return response
+
 @app.route('/')
 def index():
     houses = House.query.order_by(House.total_points.desc()).all()
@@ -74,13 +102,18 @@ def index():
 def register():
     if request.method == 'POST':
         try:
-            username = request.form['username'].strip()
+            username = sanitize_input(request.form['username']).strip()
             password = request.form['password']
-            house = request.form['house']
+            house = sanitize_input(request.form['house'])
 
             # Validate input
             if not username or not password or not house:
                 flash('All fields are required', 'danger')
+                return redirect(url_for('register'))
+                
+            # Validate username format
+            if not re.match(r'^[a-zA-Z0-9_-]{3,30}$', username):
+                flash('Username must be 3-30 characters and contain only letters, numbers, underscores, and hyphens', 'danger')
                 return redirect(url_for('register'))
 
             if User.query.filter_by(username=username).first():
@@ -118,7 +151,7 @@ def register():
 def login():
     if request.method == 'POST':
         try:
-            username = request.form['username'].strip()
+            username = sanitize_input(request.form['username']).strip()
             password = request.form['password']
 
             # Use case-insensitive username matching
@@ -132,6 +165,10 @@ def login():
                 log_activity(app, user.id, 'Login', 'Success')
                 flash('Welcome back, Dragon Climber!', 'success')
                 next_page = request.args.get('next')
+                
+                # Validate the next parameter to prevent open redirect
+                if next_page and not is_safe_url(next_page):
+                    next_page = None
                 
                 # Redirect admin users to admin dashboard
                 if user.is_admin:
@@ -154,6 +191,7 @@ def logout():
     logout_user()
     flash('You have been logged out.', 'info')
     return redirect(url_for('index'))
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -176,21 +214,15 @@ def standing_dashboard():
                          user=current_user, 
                          recent_logs=recent_logs)
 
-@app.route('/steps-dashboard')
-@login_required
-def steps_dashboard():
-    houses = House.query.order_by(House.total_points.desc()).all()
-    recent_logs = StepLog.query.filter_by(user_id=current_user.id)\
-        .order_by(StepLog.timestamp.desc()).limit(5).all()
-    return render_template('steps_dashboard.html', 
-                         houses=houses, 
-                         user=current_user, 
-                         recent_logs=recent_logs)
-
 @app.route('/admin-dashboard')
 @login_required
 @admin_required
 def admin_dashboard():
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('dashboard'))
+        
     # Get all users
     users = User.query.all()
     
@@ -209,11 +241,10 @@ def admin_dashboard():
     total_stats = {
         'flights': db.session.query(func.sum(User.total_flights)).scalar() or 0,
         'standing_time': db.session.query(func.sum(User.total_standing_time)).scalar() or 0,
-        'steps': db.session.query(func.sum(User.total_steps)).scalar() or 0,
         'points': db.session.query(func.sum(User.total_points)).scalar() or 0
     }
     
-    # Mock activity logs (in a real app, you'd fetch these from a database)
+    # Get activity logs
     activity_logs = [
         {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M'), 'username': 'System', 'action': 'System Startup', 'details': 'Application initialized'},
         {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M'), 'username': 'Admin', 'action': 'Login', 'details': 'Admin logged in'}
@@ -225,18 +256,31 @@ def admin_dashboard():
                          peak_hours=peak_hours,
                          total_stats=total_stats,
                          activity_logs=activity_logs)
+
 @app.route('/admin-dashboard/delete-user', methods=['POST'])
 @login_required
 @admin_required
 def delete_user():
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('dashboard'))
+        
     try:
         user_id = request.form.get('user_id')
         if not user_id:
             flash('User ID is required', 'danger')
             return redirect(url_for('admin_dashboard'))
             
+        # Validate user_id is an integer
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            flash('Invalid user ID', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
         # Find the user
-        user = User.query.get_or_404(int(user_id))
+        user = User.query.get_or_404(user_id)
         
         # Don't allow deleting the admin user
         if user.is_admin:
@@ -253,13 +297,10 @@ def delete_user():
             house.total_flights -= user.total_flights
             if hasattr(house, 'total_standing_time'):
                 house.total_standing_time -= user.total_standing_time
-            if hasattr(house, 'total_steps'):
-                house.total_steps -= user.total_steps
         
         # Delete user's logs
         ClimbLog.query.filter_by(user_id=user_id).delete()
         StandingLog.query.filter_by(user_id=user_id).delete()
-        StepLog.query.filter_by(user_id=user_id).delete()
         
         # Delete user
         username = user.username  # Store for logging
@@ -277,237 +318,33 @@ def delete_user():
     
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/admin-dashboard/reset-house', methods=['POST'])
-@login_required
-@admin_required
-def reset_house():
-    try:
-        house_id = request.form.get('house_id')
-        if not house_id:
-            flash('House ID is required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Find the house
-        house = House.query.get_or_404(int(house_id))
-        
-        # Store house name for logging
-        house_name = house.name
-        
-        # Reset house statistics
-        old_points = house.total_points
-        house.total_points = 0
-        house.total_flights = 0
-        house.total_standing_time = 0
-        house.total_steps = 0
-        
-        # Reset points for all users in this house
-        users_in_house = User.query.filter_by(house=house.name).all()
-        for user in users_in_house:
-            if not user.is_admin:  # Don't reset admin user stats
-                user.total_points = 0
-                user.total_flights = 0
-                user.total_standing_time = 0
-                user.total_steps = 0
-        
-        # Commit changes
-        db.session.commit()
-        
-        # Log the activity
-        log_activity(app, current_user.id, 'House Reset', f'House {house_name} points reset from {old_points} to 0')
-        flash(f'House {house_name} has been reset. All points and statistics are now zero.', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error resetting house: {str(e)}")
-        flash('An error occurred while resetting the house', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
-@app.route('/admin-dashboard/add-peak-hour', methods=['POST'])
-@login_required
-@admin_required
-def add_peak_hour():
-    try:
-        name = request.form.get('name')
-        start_time_str = request.form.get('start_time')
-        end_time_str = request.form.get('end_time')
-        multiplier = int(request.form.get('multiplier', 2))
-        
-        # Validate input
-        if not name or not start_time_str or not end_time_str:
-            flash('All fields are required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-        
-        # Parse time strings to time objects
-        start_time = datetime.strptime(start_time_str, '%H:%M').time()
-        end_time = datetime.strptime(end_time_str, '%H:%M').time()
-        
-        # Create new peak hour setting
-        from models import PeakHourSetting
-        new_setting = PeakHourSetting(
-            name=name,
-            start_time=start_time,
-            end_time=end_time,
-            multiplier=multiplier,
-            is_active=True
-        )
-        
-        db.session.add(new_setting)
-        db.session.commit()
-        
-        # Log the activity
-        log_activity(app, current_user.id, 'Peak Hour Added', f'Added new peak hour: {name}')
-        flash(f'Peak hour "{name}" has been added successfully', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error adding peak hour: {str(e)}")
-        flash('An error occurred while adding the peak hour', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin-dashboard/edit-peak-hour', methods=['POST'])
-@login_required
-@admin_required
-def edit_peak_hour():
-    try:
-        setting_id = request.form.get('setting_id')
-        name = request.form.get('name')
-        start_time_str = request.form.get('start_time')
-        end_time_str = request.form.get('end_time')
-        multiplier = int(request.form.get('multiplier', 2))
-        
-        # Validate input
-        if not setting_id or not name or not start_time_str or not end_time_str:
-            flash('All fields are required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-        
-        # Find the peak hour setting
-        from models import PeakHourSetting
-        setting = PeakHourSetting.query.get_or_404(int(setting_id))
-        
-        # Parse time strings to time objects
-        start_time = datetime.strptime(start_time_str, '%H:%M').time()
-        end_time = datetime.strptime(end_time_str, '%H:%M').time()
-        
-        # Update setting
-        setting.name = name
-        setting.start_time = start_time
-        setting.end_time = end_time
-        setting.multiplier = multiplier
-        
-        db.session.commit()
-        
-        # Log the activity
-        log_activity(app, current_user.id, 'Peak Hour Updated', f'Updated peak hour: {name}')
-        flash(f'Peak hour "{name}" has been updated successfully', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error updating peak hour: {str(e)}")
-        flash('An error occurred while updating the peak hour', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin-dashboard/toggle-peak-hour', methods=['POST'])
-@login_required
-@admin_required
-def toggle_peak_hour():
-    try:
-        setting_id = request.form.get('setting_id')
-        if not setting_id:
-            flash('Setting ID is required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-        
-        # Find the peak hour setting
-        from models import PeakHourSetting
-        setting = PeakHourSetting.query.get_or_404(int(setting_id))
-        
-        # Toggle active status
-        setting.is_active = not setting.is_active
-        
-        db.session.commit()
-        
-        # Log the activity
-        status = "activated" if setting.is_active else "deactivated"
-        log_activity(app, current_user.id, 'Peak Hour Status Changed', f'{setting.name} {status}')
-        flash(f'Peak hour "{setting.name}" has been {status}', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error toggling peak hour: {str(e)}")
-        flash('An error occurred while updating the peak hour status', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
-@app.route('/analytics-dashboard')
-@login_required
-def analytics_dashboard():
-    houses = House.query.order_by(House.name).all()
-    
-    # Prepare data for charts
-    house_names = [house.name for house in houses]
-    
-    # Define colors for each house - using the CSS variables
-    house_colors = {
-        'Black': 'rgba(51, 51, 51, 0.8)',
-        'Blue': 'rgba(0, 102, 204, 0.8)',
-        'Green': 'rgba(0, 153, 51, 0.8)',
-        'White': 'rgba(248, 249, 250, 0.8)',
-        'Gold': 'rgba(255, 204, 0, 0.8)',
-        'Purple': 'rgba(102, 0, 153, 0.8)'
-    }
-    
-    house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
-    
-    # Prepare climbing data
-    climbing_data = {
-        'flights': [house.total_flights for house in houses],
-        'points': [house.total_flights * 10 for house in houses]
-    }
-    
-    # Prepare standing data
-    standing_data = {
-        'minutes': [getattr(house, 'total_standing_time', 0) for house in houses],
-        'points': [getattr(house, 'total_standing_time', 0) for house in houses]  # 1 point per minute
-    }
-    
-    # Prepare steps data
-    steps_data = {
-        'steps': [getattr(house, 'total_steps', 0) for house in houses],
-        'points': [getattr(house, 'total_steps', 0) // 100 for house in houses]  # 1 point per 100 steps
-    }
-    
-    # Prepare combined data
-    combined_data = {
-        'climbing_points': [house.total_flights * 10 for house in houses],
-        'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
-        'steps_points': [getattr(house, 'total_steps', 0) // 100 for house in houses],
-        'total_points': [house.total_points for house in houses]
-    }
-    
-    return render_template('analytics_dashboard.html',
-                         houses=houses,
-                         house_names=house_names,
-                         house_colors=house_colors_list,
-                         climbing_data=climbing_data,
-                         standing_data=standing_data,
-                         steps_data=steps_data,
-                         combined_data=combined_data)
-
 @app.route('/log_climb', methods=['POST'])
 @login_required
+@limiter.limit("20 per minute")  # Added rate limiting
 def log_climb():
     try:
-        flights = int(request.form['flights'])
-        if flights <= 0:
+        # Validate flights is an integer
+        try:
+            flights = int(request.form['flights'])
+        except (ValueError, TypeError):
             flash('Please enter a valid number of flights', 'danger')
             return redirect(url_for('dashboard'))
+            
+        if flights <= 0 or flights > 1000:  # Added upper limit
+            flash('Please enter a valid number of flights (1-1000)', 'danger')
+            return redirect(url_for('dashboard'))
+
+        # Sanitize notes if provided
+        notes = None
+        if 'notes' in request.form and request.form['notes']:
+            notes = sanitize_input(request.form['notes'])
 
         # Check if it's peak hour for multiplier
         multiplier = get_points_multiplier()
         points = flights * 10 * multiplier
 
         # Create climb log
-        log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
+        log = ClimbLog(user_id=current_user.id, flights=flights, points=points, notes=notes)
 
         # Update user stats
         current_user.total_flights += flights
@@ -538,22 +375,34 @@ def log_climb():
         db.session.rollback()
 
     return redirect(url_for('dashboard'))
+
 @app.route('/log_standing', methods=['POST'])
 @login_required
+@limiter.limit("20 per minute")  # Added rate limiting
 def log_standing():
     try:
-        minutes = int(request.form['minutes'])
-        
-        if minutes <= 0:
+        # Validate minutes is an integer
+        try:
+            minutes = int(request.form['minutes'])
+        except (ValueError, TypeError):
             flash('Please enter a valid number of minutes', 'danger')
             return redirect(url_for('standing_dashboard'))
+            
+        if minutes <= 0 or minutes > 1440:  # Added upper limit (24 hours)
+            flash('Please enter a valid number of minutes (1-1440)', 'danger')
+            return redirect(url_for('standing_dashboard'))
+
+        # Sanitize notes if provided
+        notes = None
+        if 'notes' in request.form and request.form['notes']:
+            notes = sanitize_input(request.form['notes'])
 
         # Check if it's peak hour for multiplier
         multiplier = get_points_multiplier()
         points = minutes * multiplier
         
         # Create standing log
-        log = StandingLog(user_id=current_user.id, minutes=minutes, points=points)
+        log = StandingLog(user_id=current_user.id, minutes=minutes, points=points, notes=notes)
 
         # Update user stats with multiplier
         current_user.total_standing_time += minutes
@@ -589,53 +438,9 @@ def log_standing():
 
     return redirect(url_for('standing_dashboard'))
 
-@app.route('/log_steps', methods=['POST'])
-@login_required
-def log_steps():
-    try:
-        steps = int(request.form['steps'])
-        if steps <= 0:
-            flash('Please enter a valid number of steps', 'danger')
-            return redirect(url_for('steps_dashboard'))
-
-        # Check if it's peak hour for multiplier
-        multiplier = get_points_multiplier()
-        points = (steps // 100) * multiplier  # 1 point per 100 steps, with multiplier
-
-        # Create step log
-        log = StepLog(user_id=current_user.id, steps=steps, points=points)
-
-        # Update user stats
-        current_user.total_steps += steps
-        current_user.total_points += points
-
-        # Update house points
-        house = House.query.filter_by(name=current_user.house).first()
-        if not house:
-            raise ValueError('Invalid house association')
-
-        house.total_points += points
-        house.total_steps += steps
-
-        db.session.add(log)
-        db.session.commit()
-
-        # Add multiplier info to the message if applicable
-        multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-        log_activity(app, current_user.id, 'Steps Logged', f'{steps} steps{multiplier_text}')
-        flash(f'Added {points} points to {current_user.house} house!{multiplier_text}', 'success')
-
-    except ValueError as e:
-        flash('Please enter a valid number of steps', 'danger')
-        app.logger.warning(f'Invalid steps input: {str(e)}')
-    except Exception as e:
-        flash('An error occurred while logging your steps', 'danger')
-        app.logger.error(f'Steps logging error: {str(e)}')
-        db.session.rollback()
-
-    return redirect(url_for('steps_dashboard'))
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
+@limiter.limit("10 per minute")  # Added rate limiting
 def upload_screenshot():
     try:
         # Check if a file was uploaded
@@ -659,6 +464,15 @@ def upload_screenshot():
             timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
             unique_filename = f"{current_user.id}_{timestamp}_{filename}"
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            
+            # Check file size before saving (limit to 5MB)
+            file.seek(0, os.SEEK_END)
+            file_size = file.tell()
+            if file_size > 5 * 1024 * 1024:  # 5MB
+                flash('File size exceeds the 5MB limit', 'danger')
+                return redirect(url_for('dashboard'))
+                
+            file.seek(0)  # Reset file pointer to beginning
             file.save(filepath)
             
             # Create image analyzer and process the image
@@ -668,6 +482,12 @@ def upload_screenshot():
             
             if result.get('success'):
                 flights = result.get('flights')
+                
+                # Validate flights is within reasonable range
+                if flights <= 0 or flights > 1000:
+                    flash('Invalid number of flights detected in the screenshot', 'danger')
+                    return redirect(url_for('dashboard'))
+                    
                 timestamp_str = result.get('timestamp')
                 
                 # Check if it's peak hour for multiplier
@@ -703,147 +523,7 @@ def upload_screenshot():
         flash('An error occurred while processing your screenshot', 'danger')
     
     return redirect(url_for('dashboard'))
-@app.route('/upload-standing-screenshot', methods=['POST'])
-@login_required
-def upload_standing_screenshot():
-    try:
-        # Check if a file was uploaded
-        if 'screenshot' not in request.files:
-            flash('No file selected', 'danger')
-            return redirect(url_for('standing_dashboard'))
-            
-        file = request.files['screenshot']
-        
-        # Check if filename is empty
-        if file.filename == '':
-            flash('No file selected', 'danger')
-            return redirect(url_for('standing_dashboard'))
-            
-        if file and allowed_file(file.filename):
-            # Create uploads directory if it doesn't exist
-            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-            
-            # Secure the filename and save file
-            filename = secure_filename(file.filename)
-            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
-            unique_filename = f"{current_user.id}_standing_{timestamp}_{filename}"
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-            file.save(filepath)
-            
-            # Create image analyzer and process the image
-            image_analyzer = ImageAnalyzer()
-            file.seek(0)  # Reset file pointer to beginning
-            result = image_analyzer.analyze_standing_image(file)
-            
-            if result.get('success'):
-                minutes = result.get('minutes', 0)
-            
-                if minutes <= 0:
-                    flash('Could not detect standing time from the screenshot', 'danger')
-                    return redirect(url_for('standing_dashboard'))
-                
-                # Check if it's peak hour for multiplier
-                multiplier = get_points_multiplier()
-                points = minutes * multiplier
-                
-                # Log the standing time
-                log = StandingLog(user_id=current_user.id, minutes=minutes, points=points)
-                
-                # Update user stats
-                current_user.total_standing_time += minutes
-                current_user.total_points += points
-                
-                # Update house points
-                house = House.query.filter_by(name=current_user.house).first()
-                if house:
-                    house.total_points += points
-                    if hasattr(house, 'total_standing_time'):
-                        house.total_standing_time += minutes
-                
-                db.session.add(log)
-                db.session.commit()
-                
-                # Add multiplier info to the message if applicable
-                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{minutes} minutes{multiplier_text}')
-                flash(f'Successfully processed screenshot! Added {points} points for {minutes} minutes of standing time.{multiplier_text}', 'success')
-            else:
-                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
-        else:
-            flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
-    except Exception as e:
-        app.logger.error(f'Standing screenshot upload error: {str(e)}')
-        flash('An error occurred while processing your screenshot', 'danger')
-    
-    return redirect(url_for('standing_dashboard'))
-@app.route('/upload-steps-screenshot', methods=['POST'])
-@login_required
-def upload_steps_screenshot():
-    try:
-        # Check if a file was uploaded
-        if 'screenshot' not in request.files:
-            flash('No file selected', 'danger')
-            return redirect(url_for('steps_dashboard'))
-            
-        file = request.files['screenshot']
-        
-        # Check if filename is empty
-        if file.filename == '':
-            flash('No file selected', 'danger')
-            return redirect(url_for('steps_dashboard'))
-            
-        if file and allowed_file(file.filename):
-            # Create uploads directory if it doesn't exist
-            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-            
-            # Secure the filename and save file
-            filename = secure_filename(file.filename)
-            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
-            unique_filename = f"{current_user.id}_steps_{timestamp}_{filename}"
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-            file.save(filepath)
-            
-            # Create image analyzer and process the image
-            image_analyzer = ImageAnalyzer()
-            file.seek(0)  # Reset file pointer to beginning
-            result = image_analyzer.analyze_steps_image(file)
-            
-            if result.get('success'):
-                steps = result.get('steps')
-                
-                # Check if it's peak hour for multiplier
-                multiplier = get_points_multiplier()
-                points = (steps // 100) * multiplier
-                
-                # Log the steps
-                log = StepLog(user_id=current_user.id, steps=steps, points=points)
-                
-                # Update user stats
-                current_user.total_steps += steps
-                current_user.total_points += points
-                
-                # Update house points
-                house = House.query.filter_by(name=current_user.house).first()
-                if house:
-                    house.total_points += points
-                    house.total_steps += steps
-                
-                db.session.add(log)
-                db.session.commit()
-                
-                # Add multiplier info to the message if applicable
-                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{steps} steps{multiplier_text}')
-                flash(f'Successfully processed screenshot! Added {points} points for {steps} steps.{multiplier_text}', 'success')
-            else:
-                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
-        else:
-            flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
-    except Exception as e:
-        app.logger.error(f'Steps screenshot upload error: {str(e)}')
-        flash('An error occurred while processing your screenshot', 'danger')
-    
-    return redirect(url_for('steps_dashboard'))
+
 @app.route('/api/house_points')
 @require_api_key
 def house_points():
@@ -853,10 +533,6 @@ def house_points():
         'points': house.total_points,
         'members': house.member_count
     } for house in houses])
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
 
 @app.route('/health')
 def health_check():
@@ -878,6 +554,7 @@ def health_check():
             "timestamp": datetime.now(timezone.utc).isoformat()
         }), 500
 
+# Error handlers
 @app.errorhandler(OperationalError)
 def handle_db_connection_error(e):
     app.logger.error(f"Database connection error: {e}")
@@ -896,6 +573,36 @@ def not_found_error(error):
 def internal_error(error):
     db.session.rollback()
     return render_template('500.html'), 500
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    app.logger.error(f"CSRF error: {e}")
+    flash('The form has expired. Please try again.', 'danger')
+    return redirect(url_for('index')), 400
+
+@app.errorhandler(403)
+def forbidden_error(error):
+    app.logger.warning(f"Forbidden access attempt: {request.path}")
+    return render_template('404.html'), 403  # Use 404 template to not confirm existence
+
+@app.context_processor
+def utility_processor():
+    def get_house_count():
+        return House.query.count()
+    
+    # Add peak hour information to all templates
+    is_peak, multiplier, peak_name = get_current_peak_hour_info()
+    return {
+        'get_house_count': get_house_count,
+        'is_peak_hour': is_peak,
+        'peak_hour_multiplier': multiplier,
+        'peak_hour_name': peak_name,
+        'peak_hours_message': get_peak_hours_message()
+    }
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 @app.teardown_appcontext
 def shutdown_session(exception=None):
@@ -936,89 +643,17 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg'})
 
-
-@app.route('/debug/peak-hour')
-def debug_peak_hour():
-    from utils.time_utils import is_peak_hour, get_points_multiplier, get_current_peak_hour_info
-    now = datetime.now()
-    utc_now = datetime.utcnow()
-    local_now = utc_now + timedelta(hours=8)
-    peak_result = is_peak_hour()
-    peak_info = get_current_peak_hour_info()
-    multiplier = get_points_multiplier()
+if __name__ == '__main__':
+    # Initialize the admin user on startup
+    with app.app_context():
+        result = init_admin()
+        if result == "created":
+            print("Admin user created")
+        elif result == "updated":
+            print("Admin user credentials updated")
+        else:
+            print("Admin user already exists")
     
-    from models import get_peak_hour_settings
-    settings = get_peak_hour_settings()
-    
-    return jsonify({
-        'current_time': {
-            'server': now.strftime('%H:%M:%S'),
-            'utc': utc_now.strftime('%H:%M:%S'),
-            'local_utc8': local_now.strftime('%H:%M:%S')
-        },
-        'is_peak_hour': peak_result if isinstance(peak_result, bool) else peak_result[0],
-        'peak_hour_info': {
-            'is_peak': peak_info[0],
-            'multiplier': peak_info[1],
-            'name': peak_info[2] if len(peak_info) > 2 else ""
-        },
-        'multiplier': multiplier,
-        'settings': [
-            {
-                'name': s.name,
-                'start': s.start_time.strftime('%H:%M'),
-                'end': s.end_time.strftime('%H:%M'),
-                'multiplier': s.multiplier,
-                'active': s.is_active
-            } for s in settings
-        ]
-    })
-@app.context_processor
-def utility_processor():
-    def get_house_count():
-        return House.query.count()
-    
-    # Add peak hour information to all templates
-    peak_info = get_current_peak_hour_info()
-    is_peak = peak_info[0] if isinstance(peak_info, tuple) else peak_info
-    multiplier = peak_info[1] if isinstance(peak_info, tuple) and len(peak_info) > 1 else 2
-    peak_name = peak_info[2] if isinstance(peak_info, tuple) and len(peak_info) > 2 else ""
-    
-    return {
-        'get_house_count': get_house_count,
-        'is_peak_hour': is_peak,
-        'peak_hour_multiplier': multiplier,
-        'peak_hour_name': peak_name,
-        'peak_hours_message': get_peak_hours_message()
-    }
-@app.route('/admin-dashboard/delete-peak-hour', methods=['POST'])
-@login_required
-@admin_required
-def delete_peak_hour():
-    try:
-        setting_id = request.form.get('setting_id')
-        if not setting_id:
-            flash('Setting ID is required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-        
-        # Find the peak hour setting
-        from models import PeakHourSetting
-        setting = PeakHourSetting.query.get_or_404(int(setting_id))
-        
-        # Store name for logging
-        setting_name = setting.name
-        
-        # Delete the setting
-        db.session.delete(setting)
-        db.session.commit()
-        
-        # Log the activity
-        log_activity(app, current_user.id, 'Peak Hour Deleted', f'Deleted peak hour: {setting_name}')
-        flash(f'Peak hour "{setting_name}" has been deleted', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error deleting peak hour: {str(e)}")
-        flash('An error occurred while deleting the peak hour', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
+    # Use debug mode from environment variable
+    debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
+    app.run(debug=debug_mode)
