@@ -1,0 +1,106 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+
+# Flask
+instance/
+*.db
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# IDE files
+.vscode/
+.idea/
+
+# Uploads
+static/uploads/
+EOF# Create a clean .gitignore file
+cat > /Users/nat/Git/DragonRise/.gitignore << 'EOF'
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+
+# Flask
+instance/
+*.db
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# IDE files
+.vscode/
+.idea/
+
+# Uploads
+static/uploads/
+EOF# Create a clean .gitignore file
+cat > /Users/nat/Git/DragonRise/.gitignore << 'EOF'
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+
+# Flask
+instance/
+*.db
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# IDE files
+.vscode/
+.idea/
+
+# Uploads
+static/uploads/
+EOF# Create a clean .gitignore file
+cat > /Users/nat/Git/DragonRise/.gitignore << 'EOF'
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+
+# Flask
+instance/
+*.db
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# IDE files
+.vscode/
+.idea/
+
+# Uploads
+static/uploads/

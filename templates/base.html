@@ -17,10 +17,32 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
+                    {% if is_peak_hour %}
+                    <li class="nav-item">
+                        <span class="nav-link peak-hour-badge">
+                            <span class="badge bg-warning text-dark">{{ peak_hour_multiplier }}x Points Active!</span>
+                        </span>
+                    </li>
+                    {% endif %}
                     {% if current_user.is_authenticated %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a>
-                        </li>
+                        {% if current_user.is_admin %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a>
+                            </li>
+                        {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('dashboard') }}">Climb Dashboard</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('standing_dashboard') }}">Standing Dashboard</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('steps_dashboard') }}">Steps Dashboard</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('analytics_dashboard') }}">Analytics</a>
+                            </li>
+                        {% endif %}
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
                         </li>
@@ -38,6 +60,13 @@
     </nav>
 
     <div class="container mt-4">
+        {% if is_peak_hour %}
+        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <strong>{{ peak_hour_multiplier }}x Points Active!</strong> {{ peak_hours_message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+        
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}

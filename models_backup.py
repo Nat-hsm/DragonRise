@@ -15,7 +15,6 @@ class User(UserMixin, db.Model):
     total_flights = db.Column(db.Integer, default=0)
     total_points = db.Column(db.Integer, default=0)
     total_standing_time = db.Column(db.Integer, default=0)  # Total standing time in minutes
-    total_steps = db.Column(db.Integer, default=0)  # Total steps count
     join_date = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
     is_active = db.Column(db.Boolean, default=True)
@@ -26,8 +25,6 @@ class User(UserMixin, db.Model):
                          cascade='all, delete-orphan')
     standing_logs = db.relationship('StandingLog', backref='user', lazy=True,
                                   cascade='all, delete-orphan')
-    step_logs = db.relationship('StepLog', backref='user', lazy=True,
-                              cascade='all, delete-orphan')
     achievements = db.relationship('Achievement', secondary='user_achievements',
                                 lazy='subquery', backref=db.backref('users', lazy=True))
 
@@ -64,12 +61,6 @@ class User(UserMixin, db.Model):
         self.total_standing_time += minutes
         # Add points for standing time (1 point per minute)
         self.total_points += minutes
-        
-    def update_steps(self, steps):
-        """Update user steps and points"""
-        self.total_steps += steps
-        # Add points for steps (1 point per 100 steps)
-        self.total_points += steps // 100
 
     def __repr__(self):
         return f'<User {self.username}>'
@@ -84,7 +75,6 @@ class House(db.Model):
     total_points = db.Column(db.Integer, default=0)
     total_flights = db.Column(db.Integer, default=0)
     total_standing_time = db.Column(db.Integer, default=0)  # Total standing time in minutes
-    total_steps = db.Column(db.Integer, default=0)  # Total steps count
     member_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_activity = db.Column(db.DateTime)
@@ -109,14 +99,6 @@ class House(db.Model):
         self.total_standing_time += minutes
         self.total_points += minutes  # 1 point per minute
         self.last_activity = datetime.utcnow()
-        
-    def update_steps(self, steps):
-        """Update house steps and points"""
-        # This will be used after migration adds total_steps column
-        if hasattr(self, 'total_steps'):
-            self.total_steps += steps
-            self.total_points += steps // 100  # 1 point per 100 steps
-            self.last_activity = datetime.utcnow()
 
     def add_member(self):
         """Increment member count"""
@@ -126,12 +108,6 @@ class House(db.Model):
         """Decrement member count"""
         if self.member_count > 0:
             self.member_count -= 1
-            
-    def update_steps(self, steps):
-        """Update house steps and points"""
-        self.total_steps += steps
-        # Add points for steps (1 point per 100 steps)
-        self.total_points += steps // 100
 
     def __repr__(self):
         return f'<House {self.name}>'
@@ -216,42 +192,6 @@ class StandingLog(db.Model):
         return f'<StandingLog {self.user_id} - {self.minutes} minutes>'
 
 
-class StepLog(db.Model):
-    """Step log model for tracking user steps"""
-    __tablename__ = 'step_logs'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    steps = db.Column(db.Integer, nullable=False)  # Number of steps
-    points = db.Column(db.Integer, nullable=False)  # Points earned (1 per 100 steps)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    notes = db.Column(db.String(200))  # Optional notes
-
-    # Indexes
-    __table_args__ = (
-        Index('idx_step_user_timestamp', 'user_id', 'timestamp'),
-        Index('idx_step_timestamp', 'timestamp'),
-    )
-
-    def __init__(self, user_id, steps, points=None, notes=None):
-        self.user_id = user_id
-        self.steps = steps
-        # Default: 1 point per 100 steps, rounded down
-        self.points = points if points is not None else steps // 100
-        if notes:
-            self.notes = notes
-
-    @property
-    def formatted_timestamp(self):
-        """Return formatted timestamp in local time (UTC+8)"""
-        # Convert UTC time to local time (UTC+8)
-        local_time = self.timestamp + timedelta(hours=8)
-        return local_time.strftime('%Y-%m-%d %H:%M:%S')
-
-    def __repr__(self):
-        return f'<StepLog {self.user_id} - {self.steps} steps>'
-
-
 # Add Achievement model for future gamification
 class Achievement(db.Model):
     """Achievement model for gamification"""
@@ -303,7 +243,7 @@ def get_house_rankings():
 
 def get_user_stats(user_id):
     """Get detailed user statistics"""
-    stats = {
+    return {
         'total_flights': ClimbLog.query.with_entities(
             db.func.sum(ClimbLog.flights)
         ).filter_by(user_id=user_id).scalar() or 0,
@@ -320,22 +260,6 @@ def get_user_stats(user_id):
         'last_standing': StandingLog.query.filter_by(user_id=user_id)
             .order_by(StandingLog.timestamp.desc()).first()
     }
-    
-    # Add step stats if the table exists
-    try:
-        stats['total_steps'] = StepLog.query.with_entities(
-            db.func.sum(StepLog.steps)
-        ).filter_by(user_id=user_id).scalar() or 0
-        stats['steps_count'] = StepLog.query.filter_by(user_id=user_id).count()
-        stats['last_steps'] = StepLog.query.filter_by(user_id=user_id) \
-            .order_by(StepLog.timestamp.desc()).first()
-    except Exception:
-        # If step_logs table doesn't exist yet, set defaults
-        stats['total_steps'] = 0
-        stats['steps_count'] = 0
-        stats['last_steps'] = None
-    
-    return stats
 
 
 def init_admin():
@@ -358,7 +282,7 @@ def init_admin():
         else:
             # Create new admin
             admin = User(username='Admin', house='Admin', is_admin=True)
-            admin.set_password('123')
+            admin.set_password('admin123')
             db.session.add(admin)
             try:
                 db.session.commit()

@@ -19,22 +19,64 @@ body {
 
 .house-card {
     padding: 20px;
-    margin: 10px;
+    margin: 0;
     border-radius: 10px;
     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     transition: transform 0.3s ease;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
 }
 
 .house-card:hover {
     transform: translateY(-5px);
 }
 
+.house-card::after {
+    content: "";
+    position: absolute;
+    bottom: -15px;
+    right: -15px;
+    width: 120px;
+    height: 120px;
+    background-image: url('/static/images/dragon-logo.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: bottom right;
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* House-specific dragon colors */
 .Black { background-color: var(--black-house); color: white; }
+.Black::after { filter: invert(0.9); }
+
 .Blue { background-color: var(--blue-house); color: white; }
+.Blue::after { filter: hue-rotate(210deg); }
+
 .Green { background-color: var(--green-house); color: white; }
+.Green::after { filter: hue-rotate(120deg); }
+
 .White { background-color: var(--white-house); color: black; }
+.White::after { filter: brightness(0.6); }
+
 .Gold { background-color: var(--gold-house); color: black; }
+.Gold::after { filter: hue-rotate(45deg) saturate(1.5); }
+
 .Purple { background-color: var(--purple-house); color: white; }
+.Purple::after { filter: hue-rotate(270deg); }
+
+/* Ensure content appears above the dragon image */
+.house-card h3,
+.house-card h4,
+.house-card .points-display,
+.house-card p {
+    position: relative;
+    z-index: 2;
+}
 
 .points-display {
     font-size: 2.5rem;
@@ -48,4 +90,141 @@ body {
     padding: 20px;
     margin-bottom: 20px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* House Rankings Card */
+.house-rankings-card {
+    height: calc(100% - 40px); /* Adjust for the margin-bottom of stats-card */
+    display: flex;
+    flex-direction: column;
+}
+
+.house-grid {
+    flex-grow: 1;
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0 -10px; /* Counteract the padding in house-col */
+    height: calc(100% - 40px); /* Adjust for the h3 heading */
+}
+
+.house-col {
+    padding: 10px;
+    height: 33.333%; /* For 6 houses in 2 columns (3 rows) */
+    margin-bottom: 0;
+}
+
+/* Empty log items for consistent height */
+.empty-log-item {
+    height: 58px; /* Approximate height of a log item */
+    visibility: hidden;
+}
+
+/* Analytics Dashboard Styles */
+.chart-container {
+    min-height: 400px;
+    margin-bottom: 20px;
+}
+
+.btn-group .btn {
+    margin-right: 5px;
+}
+
+.house-badge {
+    padding: 5px 10px;
+    border-radius: 15px;
+    color: white;
+    font-weight: bold;
+    display: inline-block;
+    min-width: 80px;
+    text-align: center;
+}
+
+.nav-tabs .nav-link {
+    color: #495057;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    margin-right: 5px;
+}
+
+.nav-tabs .nav-link.active {
+    color: #495057;
+    background-color: #fff;
+    border-color: #dee2e6 #dee2e6 #fff;
+}
+
+.tab-content {
+    border: 1px solid #dee2e6;
+    border-top: none;
+    padding: 20px;
+    background-color: #fff;
+}
+
+/* Peak Hours Styles */
+.peak-hour-badge {
+    animation: pulse 2s infinite;
+}
+
+.peak-hours-banner {
+    animation: fadeInOut 5s infinite;
+}
+
+/* Collapsible logs styles */
+.collapse-text-hide {
+    display: none;
+}
+
+[aria-expanded="true"] .collapse-text-show {
+    display: none;
+}
+
+[aria-expanded="true"] .collapse-text-hide {
+    display: inline;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+@keyframes fadeInOut {
+    0% {
+        opacity: 0.8;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.8;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .points-display {
+        font-size: 2rem;
+    }
+    
+    .chart-container {
+        min-height: 300px;
+    }
+    
+    .house-rankings-card {
+        height: auto;
+    }
+    
+    .house-grid {
+        height: auto;
+    }
+    
+    .house-col {
+        height: auto;
+        margin-bottom: 20px;
+    }
 }

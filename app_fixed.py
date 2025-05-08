@@ -209,7 +209,6 @@ def admin_dashboard():
     total_stats = {
         'flights': db.session.query(func.sum(User.total_flights)).scalar() or 0,
         'standing_time': db.session.query(func.sum(User.total_standing_time)).scalar() or 0,
-        'steps': db.session.query(func.sum(User.total_steps)).scalar() or 0,
         'points': db.session.query(func.sum(User.total_points)).scalar() or 0
     }
     
@@ -253,13 +252,10 @@ def delete_user():
             house.total_flights -= user.total_flights
             if hasattr(house, 'total_standing_time'):
                 house.total_standing_time -= user.total_standing_time
-            if hasattr(house, 'total_steps'):
-                house.total_steps -= user.total_steps
         
         # Delete user's logs
         ClimbLog.query.filter_by(user_id=user_id).delete()
         StandingLog.query.filter_by(user_id=user_id).delete()
-        StepLog.query.filter_by(user_id=user_id).delete()
         
         # Delete user
         username = user.username  # Store for logging
@@ -298,7 +294,6 @@ def reset_house():
         house.total_points = 0
         house.total_flights = 0
         house.total_standing_time = 0
-        house.total_steps = 0
         
         # Reset points for all users in this house
         users_in_house = User.query.filter_by(house=house.name).all()
@@ -307,7 +302,6 @@ def reset_house():
                 user.total_points = 0
                 user.total_flights = 0
                 user.total_standing_time = 0
-                user.total_steps = 0
         
         # Commit changes
         db.session.commit()
@@ -470,17 +464,10 @@ def analytics_dashboard():
         'points': [getattr(house, 'total_standing_time', 0) for house in houses]  # 1 point per minute
     }
     
-    # Prepare steps data
-    steps_data = {
-        'steps': [getattr(house, 'total_steps', 0) for house in houses],
-        'points': [getattr(house, 'total_steps', 0) // 100 for house in houses]  # 1 point per 100 steps
-    }
-    
     # Prepare combined data
     combined_data = {
         'climbing_points': [house.total_flights * 10 for house in houses],
         'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
-        'steps_points': [getattr(house, 'total_steps', 0) // 100 for house in houses],
         'total_points': [house.total_points for house in houses]
     }
     
@@ -490,7 +477,6 @@ def analytics_dashboard():
                          house_colors=house_colors_list,
                          climbing_data=climbing_data,
                          standing_data=standing_data,
-                         steps_data=steps_data,
                          combined_data=combined_data)
 
 @app.route('/log_climb', methods=['POST'])
@@ -606,24 +592,28 @@ def log_steps():
         log = StepLog(user_id=current_user.id, steps=steps, points=points)
 
         # Update user stats
-        current_user.total_steps += steps
-        current_user.total_points += points
+        if hasattr(current_user, 'total_steps'):
+            current_user.total_steps += steps
+            current_user.total_points += points
 
-        # Update house points
-        house = House.query.filter_by(name=current_user.house).first()
-        if not house:
-            raise ValueError('Invalid house association')
+            # Update house points
+            house = House.query.filter_by(name=current_user.house).first()
+            if not house:
+                raise ValueError('Invalid house association')
 
-        house.total_points += points
-        house.total_steps += steps
+            house.total_points += points
+            if hasattr(house, 'total_steps'):
+                house.total_steps += steps
 
-        db.session.add(log)
-        db.session.commit()
+            db.session.add(log)
+            db.session.commit()
 
-        # Add multiplier info to the message if applicable
-        multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-        log_activity(app, current_user.id, 'Steps Logged', f'{steps} steps{multiplier_text}')
-        flash(f'Added {points} points to {current_user.house} house!{multiplier_text}', 'success')
+            # Add multiplier info to the message if applicable
+            multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+            log_activity(app, current_user.id, 'Steps Logged', f'{steps} steps{multiplier_text}')
+            flash(f'Added {points} points to {current_user.house} house!{multiplier_text}', 'success')
+        else:
+            flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
 
     except ValueError as e:
         flash('Please enter a valid number of steps', 'danger')
@@ -819,22 +809,26 @@ def upload_steps_screenshot():
                 log = StepLog(user_id=current_user.id, steps=steps, points=points)
                 
                 # Update user stats
-                current_user.total_steps += steps
-                current_user.total_points += points
-                
-                # Update house points
-                house = House.query.filter_by(name=current_user.house).first()
-                if house:
-                    house.total_points += points
-                    house.total_steps += steps
-                
-                db.session.add(log)
-                db.session.commit()
-                
-                # Add multiplier info to the message if applicable
-                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{steps} steps{multiplier_text}')
-                flash(f'Successfully processed screenshot! Added {points} points for {steps} steps.{multiplier_text}', 'success')
+                if hasattr(current_user, 'total_steps'):
+                    current_user.total_steps += steps
+                    current_user.total_points += points
+                    
+                    # Update house points
+                    house = House.query.filter_by(name=current_user.house).first()
+                    if house:
+                        house.total_points += points
+                        if hasattr(house, 'total_steps'):
+                            house.total_steps += steps
+                    
+                    db.session.add(log)
+                    db.session.commit()
+                    
+                    # Add multiplier info to the message if applicable
+                    multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+                    log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{steps} steps{multiplier_text}')
+                    flash(f'Successfully processed screenshot! Added {points} points for {steps} steps.{multiplier_text}', 'success')
+                else:
+                    flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
             else:
                 flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
         else:
@@ -947,59 +941,3 @@ if __name__ == '__main__':
         else:
             print("Admin user already exists")
     app.run(debug=True)
-@app.route('/debug/peak-hour')
-def debug_peak_hour():
-    from utils.time_utils import is_peak_hour, get_points_multiplier, get_current_peak_hour_info
-    now = datetime.now()
-    utc_now = datetime.utcnow()
-    local_now = utc_now + timedelta(hours=8)
-    peak_result = is_peak_hour()
-    peak_info = get_current_peak_hour_info()
-    multiplier = get_points_multiplier()
-    
-    from models import get_peak_hour_settings
-    settings = get_peak_hour_settings()
-    
-    return jsonify({
-        'current_time': {
-            'server': now.strftime('%H:%M:%S'),
-            'utc': utc_now.strftime('%H:%M:%S'),
-            'local_utc8': local_now.strftime('%H:%M:%S')
-        },
-        'is_peak_hour': peak_result if isinstance(peak_result, bool) else peak_result[0],
-        'peak_hour_info': {
-            'is_peak': peak_info[0],
-            'multiplier': peak_info[1],
-            'name': peak_info[2] if len(peak_info) > 2 else ""
-        },
-        'multiplier': multiplier,
-        'settings': [
-            {
-                'name': s.name,
-                'start': s.start_time.strftime('%H:%M'),
-                'end': s.end_time.strftime('%H:%M'),
-                'multiplier': s.multiplier,
-                'active': s.is_active
-            } for s in settings
-        ]
-    })
-@app.context_processor
-def utility_processor():
-    def get_house_count():
-        return House.query.count()
-    
-    # Add peak hour information to all templates
-    peak_info = get_current_peak_hour_info()
-    is_peak = peak_info[0] if isinstance(peak_info, tuple) else peak_info
-    multiplier = peak_info[1] if isinstance(peak_info, tuple) and len(peak_info) > 1 else 2
-    peak_name = peak_info[2] if isinstance(peak_info, tuple) and len(peak_info) > 2 else ""
-    
-    app.logger.info(f"Peak hour info: {peak_info}, is_peak: {is_peak}, multiplier: {multiplier}")
-    
-    return {
-        'get_house_count': get_house_count,
-        'is_peak_hour': is_peak,
-        'peak_hour_multiplier': multiplier,
-        'peak_hour_name': peak_name,
-        'peak_hours_message': get_peak_hours_message()
-    }

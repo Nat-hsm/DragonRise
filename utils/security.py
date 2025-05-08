@@ -3,7 +3,8 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-from flask import request, abort, jsonify, session
+from flask import request, abort, jsonify, session, flash, redirect, url_for
+from flask_login import current_user
 import os
 
 def init_security(app):
@@ -17,24 +18,18 @@ def init_security(app):
         csrf_token = csrf.generate_csrf()
         return jsonify({'csrf_token': csrf_token})
     
-    # Process rate limit configuration - Fix for the parser error
-    default_limits = app.config.get('RATELIMIT_DEFAULT', ["200 per day", "50 per hour"])
-    if isinstance(default_limits, str):
-        default_limits = default_limits.split(';')
-    
-    # Initialize rate limiter with app configuration values
+    # Initialize rate limiter
     limiter = Limiter(
-        app,
         key_func=get_remote_address,
-        default_limits=default_limits,
-        storage_uri=app.config.get('RATELIMIT_STORAGE_URL', "memory://"),
-        strategy="fixed-window"  # This is a valid strategy
+        default_limits=["200 per day", "50 per hour"],
+        storage_uri="memory://"
     )
+    limiter.init_app(app)
     
-    # Add rate limit decorators with proper format
+    # Add rate limit decorators
     def limit_requests(f):
         @wraps(f)
-        @limiter.limit("5 per minute")  # Ensure this is a proper rate limit string
+        @limiter.limit("5 per minute")
         def decorated_function(*args, **kwargs):
             return f(*args, **kwargs)
         return decorated_function
@@ -57,4 +52,13 @@ def require_api_key(f):
         if api_key and api_key == os.environ.get('API_KEY'):
             return f(*args, **kwargs)
         abort(401)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            flash('Admin access required.', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
     return decorated_function
