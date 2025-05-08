@@ -18,20 +18,19 @@ def init_security(app):
         csrf_token = csrf.generate_csrf()
         return jsonify({'csrf_token': csrf_token})
     
-    # Process rate limit configuration - Keep the improved version from HEAD branch
+    # Process rate limit configuration
     default_limits = app.config.get('RATELIMIT_DEFAULT', ["200 per day", "50 per hour"])
     if isinstance(default_limits, str):
         default_limits = default_limits.split(';')
     
     # Initialize rate limiter with app configuration values
     limiter = Limiter(
-        get_remote_address,  # key_func as first positional argument
-        app=app,  # app as a keyword argument
+        key_func=get_remote_address,  # Explicitly name the key_func argument
+        app=app,
         default_limits=default_limits,
         storage_uri=app.config.get('RATELIMIT_STORAGE_URL', "memory://"),
         strategy="fixed-window"
     )
-    limiter.init_app(app)
     
     # Add rate limit decorators
     def limit_requests(f):
