@@ -16,6 +16,7 @@
             <div class="btn-group mb-4 ms-3" role="group">
                 <button type="button" class="btn btn-success active" id="climbDataBtn">Climbing</button>
                 <button type="button" class="btn btn-outline-success" id="standingDataBtn">Standing</button>
+                <button type="button" class="btn btn-outline-success" id="stepsDataBtn">Steps</button>
                 <button type="button" class="btn btn-outline-success" id="combinedDataBtn">Combined</button>
             </div>
         </div>
@@ -40,6 +41,16 @@
             <div class="stats-card">
                 <h3>Standing Time by House</h3>
                 <canvas id="standingBarChart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <!-- Steps Bar Chart -->
+        <div class="col-md-12 mb-4 chart-container" id="stepsBarChartContainer" style="display: none;">
+            <div class="stats-card">
+                <h3>Steps by House</h3>
+                <canvas id="stepsBarChart"></canvas>
             </div>
         </div>
     </div>
@@ -78,6 +89,16 @@
     </div>
     
     <div class="row">
+        <!-- Steps Pie Chart -->
+        <div class="col-md-12 mb-4 chart-container" id="stepsPieChartContainer" style="display: none;">
+            <div class="stats-card">
+                <h3>Steps Distribution</h3>
+                <canvas id="stepsPieChart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
         <!-- Combined Pie Chart -->
         <div class="col-md-12 mb-4 chart-container" id="combinedPieChartContainer" style="display: none;">
             <div class="stats-card">
@@ -100,6 +121,8 @@
                         <th>Climbing Points</th>
                         <th>Standing Time (min)</th>
                         <th>Standing Points</th>
+                        <th>Total Steps</th>
+                        <th>Steps Points</th>
                         <th>Total Points</th>
                     </tr>
                 </thead>
@@ -113,6 +136,8 @@
                         <td>{{ house.total_flights * 10 }}</td>
                         <td>{{ house.total_standing_time }}</td>
                         <td>{{ house.total_standing_time }}</td>
+                        <td>{{ house.total_steps }}</td>
+                        <td>{{ house.total_steps // 100 }}</td>
                         <td>{{ house.total_points }}</td>
                     </tr>
                     {% endfor %}
@@ -124,6 +149,7 @@
 
 <!-- Include Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/patternomaly@1.3.2/dist/patternomaly.min.js"></script>
 
 <script>
     // Chart data from server
@@ -131,11 +157,12 @@
     const houseColors = {{ house_colors|tojson }};
     const climbingData = {{ climbing_data|tojson }};
     const standingData = {{ standing_data|tojson }};
+    const stepsData = {{ steps_data|tojson }};
     const combinedData = {{ combined_data|tojson }};
     
     // Initialize charts
-    let climbBarChart, standingBarChart, combinedBarChart;
-    let climbPieChart, standingPieChart, combinedPieChart;
+    let climbBarChart, standingBarChart, stepsBarChart, combinedBarChart;
+    let climbPieChart, standingPieChart, stepsPieChart, combinedPieChart;
     
     // Create bar charts
     function createBarCharts() {
@@ -233,22 +260,81 @@
             }
         });
         
+        // Steps bar chart
+        const stepsCtx = document.getElementById('stepsBarChart').getContext('2d');
+        stepsBarChart = new Chart(stepsCtx, {
+            type: 'bar',
+            data: {
+                labels: houseNames,
+                datasets: [{
+                    label: 'Points',
+                    data: stepsData.points,
+                    backgroundColor: houseColors,
+                    borderColor: houseColors.map(color => color.replace('0.7', '1')),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Points'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Houses'
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Steps Points by House',
+                        font: {
+                            size: 18
+                        }
+                    },
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+        
         // Combined bar chart
         const combinedCtx = document.getElementById('combinedBarChart').getContext('2d');
+        
+        // Create patterns for each house color
+        const climbingPatterns = houseColors.map(color => pattern.draw('cross', color));
+        const standingPatterns = houseColors.map(color => pattern.draw('line-vertical', color));
+        const stepsPatterns = houseColors.map(color => pattern.draw('diagonal', color));
+        
         combinedBarChart = new Chart(combinedCtx, {
             type: 'bar',
             data: {
                 labels: houseNames,
                 datasets: [{
-                    label: 'Climbing Points',
+                    label: 'Climbing Points (Cross)',
                     data: combinedData.climbing_points,
-                    backgroundColor: houseColors.map(color => color.replace('0.7', '0.9')),
+                    backgroundColor: climbingPatterns,
                     borderColor: houseColors,
                     borderWidth: 1
                 }, {
-                    label: 'Standing Points',
+                    label: 'Standing Points (Vertical)',
                     data: combinedData.standing_points,
-                    backgroundColor: houseColors.map(color => color.replace('0.7', '0.4')),
+                    backgroundColor: standingPatterns,
+                    borderColor: houseColors,
+                    borderWidth: 1
+                }, {
+                    label: 'Steps Points (Diagonal)',
+                    data: combinedData.steps_points,
+                    backgroundColor: stepsPatterns,
                     borderColor: houseColors,
                     borderWidth: 1
                 }]
@@ -372,6 +458,48 @@
             }
         });
         
+        // Steps pie chart
+        const stepsPieCtx = document.getElementById('stepsPieChart').getContext('2d');
+        stepsPieChart = new Chart(stepsPieCtx, {
+            type: 'pie',
+            data: {
+                labels: houseNames,
+                datasets: [{
+                    data: stepsData.points,
+                    backgroundColor: houseColors,
+                    borderColor: '#fff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Steps Points Distribution',
+                        font: {
+                            size: 18
+                        }
+                    },
+                    legend: {
+                        position: 'right'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: ${value} points (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
         // Combined pie chart
         const combinedPieCtx = document.getElementById('combinedPieChart').getContext('2d');
         combinedPieChart = new Chart(combinedPieCtx, {
@@ -448,11 +576,13 @@
             // Bar charts
             document.getElementById('climbBarChartContainer').style.display = 'block';
             document.getElementById('standingBarChartContainer').style.display = 'none';
+            document.getElementById('stepsBarChartContainer').style.display = 'none';
             document.getElementById('combinedBarChartContainer').style.display = 'none';
             
             // Pie charts
             document.getElementById('climbPieChartContainer').style.display = 'block';
             document.getElementById('standingPieChartContainer').style.display = 'none';
+            document.getElementById('stepsPieChartContainer').style.display = 'none';
             document.getElementById('combinedPieChartContainer').style.display = 'none';
             
             // Update button styles
@@ -463,26 +593,47 @@
             // Bar charts
             document.getElementById('climbBarChartContainer').style.display = 'none';
             document.getElementById('standingBarChartContainer').style.display = 'block';
+            document.getElementById('stepsBarChartContainer').style.display = 'none';
             document.getElementById('combinedBarChartContainer').style.display = 'none';
             
             // Pie charts
             document.getElementById('climbPieChartContainer').style.display = 'none';
             document.getElementById('standingPieChartContainer').style.display = 'block';
+            document.getElementById('stepsPieChartContainer').style.display = 'none';
             document.getElementById('combinedPieChartContainer').style.display = 'none';
             
             // Update button styles
             updateDataButtonStyles('standingDataBtn');
         });
         
+        document.getElementById('stepsDataBtn').addEventListener('click', function() {
+            // Bar charts
+            document.getElementById('climbBarChartContainer').style.display = 'none';
+            document.getElementById('standingBarChartContainer').style.display = 'none';
+            document.getElementById('stepsBarChartContainer').style.display = 'block';
+            document.getElementById('combinedBarChartContainer').style.display = 'none';
+            
+            // Pie charts
+            document.getElementById('climbPieChartContainer').style.display = 'none';
+            document.getElementById('standingPieChartContainer').style.display = 'none';
+            document.getElementById('stepsPieChartContainer').style.display = 'block';
+            document.getElementById('combinedPieChartContainer').style.display = 'none';
+            
+            // Update button styles
+            updateDataButtonStyles('stepsDataBtn');
+        });
+        
         document.getElementById('combinedDataBtn').addEventListener('click', function() {
             // Bar charts
             document.getElementById('climbBarChartContainer').style.display = 'none';
             document.getElementById('standingBarChartContainer').style.display = 'none';
+            document.getElementById('stepsBarChartContainer').style.display = 'none';
             document.getElementById('combinedBarChartContainer').style.display = 'block';
             
             // Pie charts
             document.getElementById('climbPieChartContainer').style.display = 'none';
             document.getElementById('standingPieChartContainer').style.display = 'none';
+            document.getElementById('stepsPieChartContainer').style.display = 'none';
             document.getElementById('combinedPieChartContainer').style.display = 'block';
             
             // Update button styles
@@ -490,7 +641,7 @@
         });
         
         function updateDataButtonStyles(activeId) {
-            const buttons = ['climbDataBtn', 'standingDataBtn', 'combinedDataBtn'];
+            const buttons = ['climbDataBtn', 'standingDataBtn', 'stepsDataBtn', 'combinedDataBtn'];
             buttons.forEach(id => {
                 const btn = document.getElementById(id);
                 if (id === activeId) {

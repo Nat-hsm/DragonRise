@@ -20,6 +20,7 @@
                         <th>House</th>
                         <th>Flights</th>
                         <th>Standing Time</th>
+                        <th>Steps</th>
                         <th>Points</th>
                         <th>Actions</th>
                     </tr>
@@ -33,6 +34,7 @@
                         </td>
                         <td>{{ user.total_flights }}</td>
                         <td>{{ user.total_standing_time }} min</td>
+                        <td>{{ user.total_steps }}</td>
                         <td>{{ user.total_points }}</td>
                         <td>
                             {% if not user.is_admin %}
@@ -60,7 +62,10 @@
                     <tr>
                         <th>House</th>
                         <th>Members</th>
-                        <th>Total Points</th>
+                        <th>Flights</th>
+                        <th>Standing</th>
+                        <th>Steps</th>
+                        <th>Points</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -71,6 +76,9 @@
                             <span class="house-badge {{ house.name }}">{{ house.name }}</span>
                         </td>
                         <td>{{ house.member_count }}</td>
+                        <td>{{ house.total_flights }}</td>
+                        <td>{{ house.total_standing_time }}</td>
+                        <td>{{ house.total_steps }}</td>
                         <td>{{ house.total_points }}</td>
                         <td>
                             <form action="/admin-dashboard/reset-house" method="POST" style="display:inline;">
@@ -98,8 +106,7 @@
                     <thead>
                         <tr>
                             <th>Name</th>
-                            <th>Start Time</th>
-                            <th>End Time</th>
+                            <th>Time Range</th>
                             <th>Multiplier</th>
                             <th>Status</th>
                             <th>Actions</th>
@@ -109,8 +116,7 @@
                         {% for setting in peak_hours %}
                         <tr>
                             <td>{{ setting.name }}</td>
-                            <td>{{ setting.start_time.strftime('%I:%M %p') }}</td>
-                            <td>{{ setting.end_time.strftime('%I:%M %p') }}</td>
+                            <td>{{ setting.formatted_time_range }}</td>
                             <td>{{ setting.multiplier }}x</td>
                             <td>
                                 {% if setting.is_active %}
@@ -120,98 +126,102 @@
                                 {% endif %}
                             </td>
                             <td>
-                                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editPeakHourModal{{ setting.id }}">
-                                    Edit
-                                </button>
                                 <form action="/admin-dashboard/toggle-peak-hour" method="POST" style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <input type="hidden" name="setting_id" value="{{ setting.id }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-{{ 'warning' if setting.is_active else 'success' }}">
-                                        {{ 'Deactivate' if setting.is_active else 'Activate' }}
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">
+                                        {% if setting.is_active %}
+                                        Deactivate
+                                        {% else %}
+                                        Activate
+                                        {% endif %}
                                     </button>
                                 </form>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editPeakHourModal{{ setting.id }}">
+                                    Edit
+                                </button>
+                                
+                                <!-- Edit Modal -->
+                                <div class="modal fade" id="editPeakHourModal{{ setting.id }}" tabindex="-1" aria-labelledby="editPeakHourModalLabel{{ setting.id }}" aria-hidden="true">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title" id="editPeakHourModalLabel{{ setting.id }}">Edit Peak Hour</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <form action="/admin-dashboard/edit-peak-hour" method="POST">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="setting_id" value="{{ setting.id }}">
+                                                <div class="modal-body">
+                                                    <div class="mb-3">
+                                                        <label for="name{{ setting.id }}" class="form-label">Name</label>
+                                                        <input type="text" class="form-control" id="name{{ setting.id }}" name="name" value="{{ setting.name }}" required>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label for="start_time{{ setting.id }}" class="form-label">Start Time</label>
+                                                        <input type="time" class="form-control" id="start_time{{ setting.id }}" name="start_time" value="{{ setting.start_time.strftime('%H:%M') }}" required>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label for="end_time{{ setting.id }}" class="form-label">End Time</label>
+                                                        <input type="time" class="form-control" id="end_time{{ setting.id }}" name="end_time" value="{{ setting.end_time.strftime('%H:%M') }}" required>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label for="multiplier{{ setting.id }}" class="form-label">Multiplier</label>
+                                                        <input type="number" class="form-control" id="multiplier{{ setting.id }}" name="multiplier" value="{{ setting.multiplier }}" min="1" max="10" required>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
                             </td>
                         </tr>
-                        
-                        <!-- Edit Modal for each peak hour setting -->
-                        <div class="modal fade" id="editPeakHourModal{{ setting.id }}" tabindex="-1" aria-labelledby="editPeakHourModalLabel{{ setting.id }}" aria-hidden="true">
-                            <div class="modal-dialog">
-                                <div class="modal-content">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title" id="editPeakHourModalLabel{{ setting.id }}">Edit Peak Hour</h5>
-                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                    </div>
-                                    <form action="/admin-dashboard/edit-peak-hour" method="POST">
-                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <input type="hidden" name="setting_id" value="{{ setting.id }}">
-                                        <div class="modal-body">
-                                            <div class="mb-3">
-                                                <label for="name{{ setting.id }}" class="form-label">Name</label>
-                                                <input type="text" class="form-control" id="name{{ setting.id }}" name="name" value="{{ setting.name }}" required>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label for="start_time{{ setting.id }}" class="form-label">Start Time</label>
-                                                <input type="time" class="form-control" id="start_time{{ setting.id }}" name="start_time" value="{{ setting.start_time.strftime('%H:%M') }}" required>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label for="end_time{{ setting.id }}" class="form-label">End Time</label>
-                                                <input type="time" class="form-control" id="end_time{{ setting.id }}" name="end_time" value="{{ setting.end_time.strftime('%H:%M') }}" required>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label for="multiplier{{ setting.id }}" class="form-label">Multiplier</label>
-                                                <input type="number" class="form-control" id="multiplier{{ setting.id }}" name="multiplier" value="{{ setting.multiplier }}" min="1" max="10" required>
-                                            </div>
-                                        </div>
-                                        <div class="modal-footer">
-                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                            <button type="submit" class="btn btn-primary">Save Changes</button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
                         {% endfor %}
                     </tbody>
                 </table>
-            </div>
-            
-            <button type="button" class="btn btn-primary mt-3" data-bs-toggle="modal" data-bs-target="#addPeakHourModal">
-                Add New Peak Hour
-            </button>
-            
-            <!-- Add New Peak Hour Modal -->
-            <div class="modal fade" id="addPeakHourModal" tabindex="-1" aria-labelledby="addPeakHourModalLabel" aria-hidden="true">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title" id="addPeakHourModalLabel">Add New Peak Hour</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                
+                <button type="button" class="btn btn-primary mt-3" data-bs-toggle="modal" data-bs-target="#addPeakHourModal">
+                    Add New Peak Hour
+                </button>
+                
+                <!-- Add Modal -->
+                <div class="modal fade" id="addPeakHourModal" tabindex="-1" aria-labelledby="addPeakHourModalLabel" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="addPeakHourModalLabel">Add New Peak Hour</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form action="/admin-dashboard/add-peak-hour" method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div class="modal-body">
+                                    <div class="mb-3">
+                                        <label for="name" class="form-label">Name</label>
+                                        <input type="text" class="form-control" id="name" name="name" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="start_time" class="form-label">Start Time</label>
+                                        <input type="time" class="form-control" id="start_time" name="start_time" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="end_time" class="form-label">End Time</label>
+                                        <input type="time" class="form-control" id="end_time" name="end_time" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="multiplier" class="form-label">Multiplier</label>
+                                        <input type="number" class="form-control" id="multiplier" name="multiplier" value="2" min="1" max="10" required>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <button type="submit" class="btn btn-primary">Add Peak Hour</button>
+                                </div>
+                            </form>
                         </div>
-                        <form action="/admin-dashboard/add-peak-hour" method="POST">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <div class="modal-body">
-                                <div class="mb-3">
-                                    <label for="name" class="form-label">Name</label>
-                                    <input type="text" class="form-control" id="name" name="name" placeholder="e.g., Morning Peak" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="start_time" class="form-label">Start Time</label>
-                                    <input type="time" class="form-control" id="start_time" name="start_time" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="end_time" class="form-label">End Time</label>
-                                    <input type="time" class="form-control" id="end_time" name="end_time" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="multiplier" class="form-label">Multiplier</label>
-                                    <input type="number" class="form-control" id="multiplier" name="multiplier" value="2" min="1" max="10" required>
-                                </div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="submit" class="btn btn-primary">Add Peak Hour</button>
-                            </div>
-                        </form>
                     </div>
                 </div>
             </div>
@@ -224,26 +234,32 @@
         <div class="stats-card">
             <h3>System Statistics</h3>
             <div class="row">
-                <div class="col-md-3">
+                <div class="col-md-20p">
                     <div class="stat-box">
                         <h4>Total Users</h4>
                         <div class="points-display">{{ users|length }}</div>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-20p">
                     <div class="stat-box">
                         <h4>Total Flights</h4>
                         <div class="points-display">{{ total_stats.flights }}</div>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-20p">
                     <div class="stat-box">
                         <h4>Standing Time</h4>
                         <div class="points-display">{{ total_stats.standing_time }}</div>
                         <p class="text-muted">minutes</p>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-20p">
+                    <div class="stat-box">
+                        <h4>Total Steps</h4>
+                        <div class="points-display">{{ total_stats.steps }}</div>
+                    </div>
+                </div>
+                <div class="col-md-20p">
                     <div class="stat-box">
                         <h4>Total Points</h4>
                         <div class="points-display">{{ total_stats.points }}</div>
@@ -283,6 +299,15 @@
 </div>
 
 <style>
+    .col-md-20p {
+        width: 20%;
+        float: left;
+        position: relative;
+        min-height: 1px;
+        padding-right: 15px;
+        padding-left: 15px;
+    }
+    
     .stat-box {
         text-align: center;
         padding: 15px;
@@ -325,6 +350,10 @@
     
     .Purple {
         background-color: var(--purple-house);
+    }
+    
+    .Admin {
+        background-color: #6c757d;
     }
 </style>
 {% endblock %}
