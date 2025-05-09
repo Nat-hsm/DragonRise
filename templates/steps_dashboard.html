@@ -9,7 +9,7 @@
             <div class="row">
                 <div class="col-6">
                     <h4>Total Steps</h4>
-                    <div class="points-display">{{ current_user.total_steps }}</div>
+                    <div class="points-display">{{ current_user.total_steps if current_user.total_steps is not none else 0 }}</div>
                 </div>
                 <div class="col-6">
                     <h4>Total Points</h4>
@@ -21,7 +21,6 @@
         <div class="stats-card">
             <h3>Log Your Steps</h3>
             <form action="{{ url_for('log_steps') }}" method="post">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-3">
                     <label for="steps" class="form-label">Number of Steps</label>
                     <input type="number" class="form-control" id="steps" name="steps" required min="1">
@@ -33,7 +32,6 @@
                 <h5>Upload Health App Screenshot</h5>
                 <p class="text-muted small">We can automatically detect steps from your health app</p>
                 <form action="{{ url_for('upload_steps_screenshot') }}" method="post" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <input type="file" class="form-control" id="screenshot" name="screenshot" accept=".jpg,.jpeg,.png" required>
                     </div>
@@ -50,7 +48,7 @@
                 <li class="list-group-item">
                     <span class="badge bg-primary">{{ log.steps }} steps</span>
                     <span class="badge bg-success">+{{ log.points }} points</span>
-                    <small class="text-muted float-end">{{ log.formatted_timestamp }}</small>
+                    <small class="text-muted float-end">{{ log.formatted_timestamp if log.formatted_timestamp else log.timestamp }}</small>
                 </li>
                 {% endfor %}
                 {% if recent_logs|length < 3 %}
@@ -67,7 +65,7 @@
                     <li class="list-group-item">
                         <span class="badge bg-primary">{{ log.steps }} steps</span>
                         <span class="badge bg-success">+{{ log.points }} points</span>
-                        <small class="text-muted float-end">{{ log.formatted_timestamp }}</small>
+                        <small class="text-muted float-end">{{ log.formatted_timestamp if log.formatted_timestamp else log.timestamp }}</small>
                     </li>
                     {% endfor %}
                 </ul>

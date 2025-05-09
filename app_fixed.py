@@ -464,10 +464,17 @@ def analytics_dashboard():
         'points': [getattr(house, 'total_standing_time', 0) for house in houses]  # 1 point per minute
     }
     
+    # Prepare steps data
+    steps_data = {
+        'steps': [getattr(house, 'total_steps', 0) for house in houses],
+        'points': [getattr(house, 'total_steps', 0) // 100 for house in houses]
+    }
+    
     # Prepare combined data
     combined_data = {
         'climbing_points': [house.total_flights * 10 for house in houses],
         'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
+        'steps_points': [getattr(house, 'total_steps', 0) // 100 for house in houses],
         'total_points': [house.total_points for house in houses]
     }
     
@@ -477,6 +484,7 @@ def analytics_dashboard():
                          house_colors=house_colors_list,
                          climbing_data=climbing_data,
                          standing_data=standing_data,
+                         steps_data=steps_data,
                          combined_data=combined_data)
 
 @app.route('/log_climb', methods=['POST'])

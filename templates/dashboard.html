@@ -21,7 +21,6 @@
         <div class="stats-card">
             <h3>Log Your Climb</h3>
             <form action="{{ url_for('log_climb') }}" method="post">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-3">
                     <label for="flights" class="form-label">Number of Flights</label>
                     <input type="number" class="form-control" id="flights" name="flights" required min="1">
@@ -33,7 +32,6 @@
                 <h5>Upload Health App Screenshot</h5>
                 <p class="text-muted small">We can automatically detect flights from your health app</p>
                 <form action="{{ url_for('upload_screenshot') }}" method="post" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <input type="file" class="form-control" id="screenshot" name="screenshot" accept=".jpg,.jpeg,.png" required>
                     </div>
@@ -74,7 +72,7 @@
             </div>
             <button class="btn btn-sm btn-outline-secondary w-100 mt-2" type="button" 
                     data-bs-toggle="collapse" data-bs-target="#moreLogsCollapse" 
-                    aria-expanded="false" aria-controls="moreLogsCollapse">
+                    aria-expanded="false" aria-controls="#moreLogsCollapse">
                 <span class="collapse-text-show">Show More ({{ recent_logs|length - 3 }})</span>
                 <span class="collapse-text-hide">Show Less</span>
             </button>

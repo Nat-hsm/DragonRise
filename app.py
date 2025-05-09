@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import UserMixin, login_user, login_required, logout_user, current_user
-from flask_wtf.csrf import CSRFError, CSRFProtect
 from flask_wtf import FlaskForm
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.sql import text
@@ -53,7 +52,7 @@ login_manager.login_view = 'login'
 migrate.init_app(app, db)
 
 # Initialize security features
-csrf, limiter, limit_requests = init_security(app)
+_, limiter, limit_requests = init_security(app)
 
 # Initialize logging
 log_config = LogConfig(app)
@@ -67,27 +66,27 @@ except Exception as e:
     # Continue anyway to allow app initialization, but functionality will be limited
 
 # Import models AFTER extensions are initialized
-from models import User, House, ClimbLog, StandingLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
+from models import User, House, ClimbLog, StandingLog, StepLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
 
 # Add security headers to all responses
 @app.after_request
 def add_security_headers(response):
     """Add security headers to HTTP response"""
-    # Add XSS protection headers
-    response = add_xss_protection_headers(response)
+    # Update CSP to allow unsafe-inline for styles and scripts during development
+    # In production, you should use nonces or hashes instead
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "font-src 'self'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'"
+    )
     
-    # Prevent clickjacking
+    response.headers['Content-Security-Policy'] = csp
+    response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-    
-    # Referrer policy
-    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-    
-    # HTTP Strict Transport Security (HSTS)
-    if request.is_secure:
-        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    
-    # Feature Policy / Permissions Policy
-    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
     
     return response
 
@@ -236,6 +235,11 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
+    # Redirect admin to admin dashboard
+    if current_user.is_admin:
+        flash('Admin users should use the Admin Dashboard', 'info')
+        return redirect(url_for('admin_dashboard'))
+        
     houses = House.query.order_by(House.total_points.desc()).all()
     recent_logs = ClimbLog.query.filter_by(user_id=current_user.id)\
         .order_by(ClimbLog.timestamp.desc()).limit(5).all()
@@ -247,6 +251,11 @@ def dashboard():
 @app.route('/standing-dashboard')
 @login_required
 def standing_dashboard():
+    # Redirect admin to admin dashboard
+    if current_user.is_admin:
+        flash('Admin users should use the Admin Dashboard', 'info')
+        return redirect(url_for('admin_dashboard'))
+        
     houses = House.query.order_by(House.total_points.desc()).all()
     recent_logs = StandingLog.query.filter_by(user_id=current_user.id)\
         .order_by(StandingLog.timestamp.desc()).limit(5).all()
@@ -254,6 +263,96 @@ def standing_dashboard():
                          houses=houses, 
                          user=current_user, 
                          recent_logs=recent_logs)
+
+@app.route('/steps-dashboard')
+@login_required
+def steps_dashboard():
+    # Redirect admin to admin dashboard
+    if current_user.is_admin:
+        flash('Admin users should use the Admin Dashboard', 'info')
+        return redirect(url_for('admin_dashboard'))
+        
+    houses = House.query.order_by(House.total_points.desc()).all()
+    recent_logs = StepLog.query.filter_by(user_id=current_user.id)\
+        .order_by(StepLog.timestamp.desc()).limit(5).all()
+    return render_template('steps_dashboard.html', 
+                         houses=houses, 
+                         user=current_user, 
+                         recent_logs=recent_logs)
+
+@app.route('/analytics-dashboard')
+@login_required
+@admin_required
+def analytics_dashboard():
+    houses = House.query.order_by(House.name).all()
+    
+    # Prepare data for charts
+    house_names = [house.name for house in houses]
+    
+    # Define colors for each house - using the CSS variables
+    house_colors = {
+        'Black': 'rgba(51, 51, 51, 0.8)',
+        'Blue': 'rgba(0, 102, 204, 0.8)',
+        'Green': 'rgba(0, 153, 51, 0.8)',
+        'White': 'rgba(248, 249, 250, 0.8)',
+        'Gold': 'rgba(255, 204, 0, 0.8)',
+        'Purple': 'rgba(102, 0, 153, 0.8)'
+    }
+    
+    house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
+    
+    # Ensure all houses have the required attributes with default values
+    for house in houses:
+        if not hasattr(house, 'total_flights') or house.total_flights is None:
+            house.total_flights = 0
+        if not hasattr(house, 'total_standing_time') or house.total_standing_time is None:
+            house.total_standing_time = 0
+        if not hasattr(house, 'total_steps') or house.total_steps is None:
+            house.total_steps = 0
+        if not hasattr(house, 'total_points') or house.total_points is None:
+            house.total_points = 0
+    
+    # Prepare climbing data
+    climbing_data = {
+        'flights': [house.total_flights for house in houses],
+        'points': [house.total_flights * 10 for house in houses]
+    }
+    
+    # Prepare standing data
+    standing_data = {
+        'minutes': [house.total_standing_time for house in houses],
+        'points': [house.total_standing_time for house in houses]  # 1 point per minute
+    }
+    
+    # Prepare steps data
+    steps_data = {
+        'steps': [house.total_steps for house in houses],
+        'points': [(house.total_steps // 100) for house in houses]
+    }
+    
+    # Prepare combined data with explicit type definitions
+    combined_data = {
+        'climbing_points': [house.total_flights * 10 for house in houses],
+        'standing_points': [house.total_standing_time for house in houses],
+        'steps_points': [(house.total_steps // 100) for house in houses],
+        'total_points': [house.total_points for house in houses]
+    }
+    
+    # Log data in a more readable format for debugging
+    app.logger.info(f"Analytics data - Houses: {house_names}")
+    app.logger.info(f"Climbing data: {climbing_data}")
+    app.logger.info(f"Standing data: {standing_data}")
+    app.logger.info(f"Steps data: {steps_data}")
+    app.logger.info(f"Combined data: {combined_data}")
+    
+    return render_template('analytics_dashboard.html',
+                         houses=houses,
+                         house_names=house_names,
+                         house_colors=house_colors_list,
+                         climbing_data=climbing_data,
+                         standing_data=standing_data,
+                         steps_data=steps_data,
+                         combined_data=combined_data)
 
 @app.route('/user/<int:user_id>/stats')
 @login_required
@@ -293,6 +392,7 @@ def admin_dashboard():
     total_stats = {
         'flights': db.session.query(func.sum(User.total_flights)).scalar() or 0,
         'standing_time': db.session.query(func.sum(User.total_standing_time)).scalar() or 0,
+        'steps': db.session.query(func.sum(User.total_steps)).scalar() or 0,
         'points': db.session.query(func.sum(User.total_points)).scalar() or 0
     }
     
@@ -497,6 +597,56 @@ def log_standing():
 
     return redirect(url_for('standing_dashboard'))
 
+@app.route('/log_steps', methods=['POST'])
+@login_required
+def log_steps():
+    try:
+        steps = int(request.form['steps'])
+        if steps <= 0:
+            flash('Please enter a valid number of steps', 'danger')
+            return redirect(url_for('steps_dashboard'))
+
+        # Check if it's peak hour for multiplier
+        multiplier = get_points_multiplier()
+        points = (steps // 100) * multiplier  # 1 point per 100 steps, with multiplier
+
+        # Create step log
+        log = StepLog(user_id=current_user.id, steps=steps, points=points)
+
+        # Update user stats
+        if hasattr(current_user, 'total_steps'):
+            current_user.total_steps += steps
+            current_user.total_points += points
+
+            # Update house points
+            house = House.query.filter_by(name=current_user.house).first()
+            if not house:
+                raise ValueError('Invalid house association')
+
+            house.total_points += points
+            if hasattr(house, 'total_steps'):
+                house.total_steps += steps
+
+            db.session.add(log)
+            db.session.commit()
+
+            # Add multiplier info to the message if applicable
+            multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+            log_activity(app, current_user.id, 'Steps Logged', f'{steps} steps{multiplier_text}')
+            flash(f'Added {points} points to {current_user.house} house!{multiplier_text}', 'success')
+        else:
+            flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
+
+    except ValueError as e:
+        flash('Please enter a valid number of steps', 'danger')
+        app.logger.warning(f'Invalid steps input: {str(e)}')
+    except Exception as e:
+        flash('An error occurred while logging your steps', 'danger')
+        app.logger.error(f'Steps logging error: {str(e)}')
+        db.session.rollback()
+
+    return redirect(url_for('steps_dashboard'))
+
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
 @limiter.limit("10 per minute")  # Added rate limiting
@@ -598,6 +748,149 @@ def upload_screenshot():
     
     return redirect(url_for('dashboard'))
 
+@app.route('/upload-standing-screenshot', methods=['POST'])
+@login_required
+def upload_standing_screenshot():
+    try:
+        # Check if a file was uploaded
+        if 'screenshot' not in request.files:
+            flash('No file selected', 'danger')
+            return redirect(url_for('standing_dashboard'))
+            
+        file = request.files['screenshot']
+        
+        # Check if filename is empty
+        if file.filename == '':
+            flash('No file selected', 'danger')
+            return redirect(url_for('standing_dashboard'))
+            
+        if file and allowed_file(file.filename):
+            # Create uploads directory if it doesn't exist
+            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+            
+            # Secure the filename and save file
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+            unique_filename = f"{current_user.id}_standing_{timestamp}_{filename}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            file.save(filepath)
+            
+            # Create image analyzer and process the image
+            image_analyzer = ImageAnalyzer()
+            file.seek(0)  # Reset file pointer to beginning
+            result = image_analyzer.analyze_standing_image(file)
+            
+            if result.get('success'):
+                minutes = result.get('minutes', 0)
+                
+                # Check if it's peak hour for multiplier
+                multiplier = get_points_multiplier()
+                points = minutes * multiplier
+                
+                # Log the standing time
+                log = StandingLog(user_id=current_user.id, minutes=minutes, points=points)
+                
+                # Update user stats
+                current_user.total_standing_time += minutes
+                current_user.total_points += points
+                
+                # Update house points
+                house = House.query.filter_by(name=current_user.house).first()
+                if house:
+                    house.total_points += points
+                    if hasattr(house, 'total_standing_time'):
+                        house.total_standing_time += minutes
+                
+                db.session.add(log)
+                db.session.commit()
+                
+                # Add multiplier info to the message if applicable
+                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+                log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{minutes} minutes{multiplier_text}')
+                flash(f'Successfully processed screenshot! Added {points} points for {minutes} minutes of standing time.{multiplier_text}', 'success')
+            else:
+                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
+        else:
+            flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
+    except Exception as e:
+        app.logger.error(f'Standing screenshot upload error: {str(e)}')
+        flash('An error occurred while processing your screenshot', 'danger')
+    
+    return redirect(url_for('standing_dashboard'))
+
+@app.route('/upload-steps-screenshot', methods=['POST'])
+@login_required
+def upload_steps_screenshot():
+    try:
+        # Check if a file was uploaded
+        if 'screenshot' not in request.files:
+            flash('No file selected', 'danger')
+            return redirect(url_for('steps_dashboard'))
+            
+        file = request.files['screenshot']
+        
+        # Check if filename is empty
+        if file.filename == '':
+            flash('No file selected', 'danger')
+            return redirect(url_for('steps_dashboard'))
+            
+        if file and allowed_file(file.filename):
+            # Create uploads directory if it doesn't exist
+            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+            
+            # Secure the filename and save file
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+            unique_filename = f"{current_user.id}_steps_{timestamp}_{filename}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            file.save(filepath)
+            
+            # Create image analyzer and process the image
+            image_analyzer = ImageAnalyzer()
+            file.seek(0)  # Reset file pointer to beginning
+            result = image_analyzer.analyze_steps_image(file)
+            
+            if result.get('success'):
+                steps = result.get('steps', 0)
+                
+                if hasattr(current_user, 'total_steps'):
+                    # Check if it's peak hour for multiplier
+                    multiplier = get_points_multiplier()
+                    points = (steps // 100) * multiplier
+                    
+                    # Log the steps
+                    log = StepLog(user_id=current_user.id, steps=steps, points=points)
+                    
+                    # Update user stats
+                    current_user.total_steps += steps
+                    current_user.total_points += points
+                    
+                    # Update house points
+                    house = House.query.filter_by(name=current_user.house).first()
+                    if house:
+                        house.total_points += points
+                        if hasattr(house, 'total_steps'):
+                            house.total_steps += steps
+                    
+                    db.session.add(log)
+                    db.session.commit()
+                    
+                    # Add multiplier info to the message if applicable
+                    multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+                    log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{steps} steps{multiplier_text}')
+                    flash(f'Successfully processed screenshot! Added {points} points for {steps} steps.{multiplier_text}', 'success')
+                else:
+                    flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
+            else:
+                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
+        else:
+            flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
+    except Exception as e:
+        app.logger.error(f'Steps screenshot upload error: {str(e)}')
+        flash('An error occurred while processing your screenshot', 'danger')
+    
+    return redirect(url_for('steps_dashboard'))
+
 @app.route('/api/house_points')
 @require_api_key
 def house_points():
@@ -647,12 +940,6 @@ def not_found_error(error):
 def internal_error(error):
     db.session.rollback()
     return render_template('500.html'), 500
-
-@app.errorhandler(CSRFError)
-def handle_csrf_error(e):
-    app.logger.error(f"CSRF error: {e}")
-    flash('The form has expired. Please try again.', 'danger')
-    return redirect(url_for('index')), 400
 
 @app.errorhandler(403)
 def forbidden_error(error):

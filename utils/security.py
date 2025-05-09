@@ -1,4 +1,3 @@
-from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -8,16 +7,6 @@ from flask_login import current_user
 import os
 
 def init_security(app):
-    # Initialize CSRF protection
-    csrf = CSRFProtect(app)
-    
-    # Add a route to expose the CSRF token
-    @app.route('/csrf-token', methods=['GET'])
-    def get_csrf_token():
-        # Generate a new token
-        csrf_token = csrf.generate_csrf()
-        return jsonify({'csrf_token': csrf_token})
-    
     # Process rate limit configuration
     default_limits = app.config.get('RATELIMIT_DEFAULT', ["200 per day", "50 per hour"])
     if isinstance(default_limits, str):
@@ -40,7 +29,8 @@ def init_security(app):
             return f(*args, **kwargs)
         return decorated_function
     
-    return csrf, limiter, limit_requests
+    # Return None for csrf and keep other values
+    return None, limiter, limit_requests
 
 class PasswordManager:
     @staticmethod
@@ -64,7 +54,7 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated or not current_user.is_admin:
-            flash('Admin access required.', 'danger')
-            return redirect(url_for('dashboard'))
+            flash('Admin access required. This page is only accessible to administrators.', 'danger')
+            return redirect(url_for('dashboard') if not current_user.is_admin else url_for('login'))
         return f(*args, **kwargs)
     return decorated_function

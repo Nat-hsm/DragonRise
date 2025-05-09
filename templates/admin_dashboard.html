@@ -34,12 +34,11 @@
                         </td>
                         <td>{{ user.total_flights }}</td>
                         <td>{{ user.total_standing_time }} min</td>
-                        <td>{{ user.total_steps }}</td>
+                        <td>{{ user.total_steps|default(0) }}</td>
                         <td>{{ user.total_points }}</td>
                         <td>
                             {% if not user.is_admin %}
                             <form action="/admin-dashboard/delete-user" method="POST" style="display:inline;">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="user_id" value="{{ user.id }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this user? This action cannot be undone.');">Delete</button>
                             </form>
@@ -78,11 +77,10 @@
                         <td>{{ house.member_count }}</td>
                         <td>{{ house.total_flights }}</td>
                         <td>{{ house.total_standing_time }}</td>
-                        <td>{{ house.total_steps }}</td>
+                        <td>{{ house.total_steps|default(0) }}</td>
                         <td>{{ house.total_points }}</td>
                         <td>
                             <form action="/admin-dashboard/reset-house" method="POST" style="display:inline;">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="house_id" value="{{ house.id }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to reset all points for {{ house.name }} house? This action cannot be undone.');">Reset Points</button>
                             </form>
@@ -132,7 +130,6 @@
                                     Edit
                                 </button>
                                 <form action="/admin-dashboard/toggle-peak-hour" method="POST" style="display:inline;">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <input type="hidden" name="setting_id" value="{{ setting.id }}">
                                     <button type="submit" class="btn btn-sm {% if setting.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}">
                                         {% if setting.is_active %}
@@ -143,7 +140,6 @@
                                     </button>
                                 </form>
                                 <form action="/admin-dashboard/delete-peak-hour" method="POST" style="display:inline;">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <input type="hidden" name="setting_id" value="{{ setting.id }}">
                                     <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this peak hour setting? This action cannot be undone.');">
                                         Delete
@@ -159,7 +155,6 @@
                                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                             </div>
                                             <form action="/admin-dashboard/edit-peak-hour" method="POST">
-                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                 <input type="hidden" name="setting_id" value="{{ setting.id }}">
                                                 <div class="modal-body">
                                                     <div class="mb-3">
@@ -206,7 +201,6 @@
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                             </div>
                             <form action="/admin-dashboard/add-peak-hour" method="POST">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <div class="modal-body">
                                     <div class="mb-3">
                                         <label for="name" class="form-label">Name</label>
@@ -242,37 +236,31 @@
     <div class="col-md-12">
         <div class="stats-card">
             <h3>System Statistics</h3>
-            <div class="row">
-                <div class="col-md-20p">
-                    <div class="stat-box">
-                        <h4>Total Users</h4>
-                        <div class="points-display">{{ users|length }}</div>
-                    </div>
+            <!-- Change from vertical columns to horizontal layout -->
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <div class="stat-box-horizontal">
+                    <h4>Total Users</h4>
+                    <div class="points-display">{{ users|length }}</div>
                 </div>
-                <div class="col-md-20p">
-                    <div class="stat-box">
-                        <h4>Total Flights</h4>
-                        <div class="points-display">{{ total_stats.flights }}</div>
-                    </div>
+                
+                <div class="stat-box-horizontal">
+                    <h4>Total Flights</h4>
+                    <div class="points-display">{{ total_stats.flights|default(0) }}</div>
                 </div>
-                <div class="col-md-20p">
-                    <div class="stat-box">
-                        <h4>Standing Time</h4>
-                        <div class="points-display">{{ total_stats.standing_time }}</div>
-                        <p class="text-muted">minutes</p>
-                    </div>
+                
+                <div class="stat-box-horizontal standing-time">
+                    <h4>Standing Time (mins)</h4>
+                    <div class="points-display">{{ total_stats.standing_time|default(0) }}</div>
                 </div>
-                <div class="col-md-20p">
-                    <div class="stat-box">
-                        <h4>Total Steps</h4>
-                        <div class="points-display">{{ total_stats.steps }}</div>
-                    </div>
+                
+                <div class="stat-box-horizontal">
+                    <h4>Total Steps</h4>
+                    <div class="points-display">{{ total_stats.steps|default(0) }}</div>
                 </div>
-                <div class="col-md-20p">
-                    <div class="stat-box">
-                        <h4>Total Points</h4>
-                        <div class="points-display">{{ total_stats.points }}</div>
-                    </div>
+                
+                <div class="stat-box-horizontal">
+                    <h4>Total Points</h4>
+                    <div class="points-display">{{ total_stats.points|default(0) }}</div>
                 </div>
             </div>
         </div>
@@ -349,7 +337,9 @@
     
     .White {
         background-color: var(--white-house);
-        color: black;
+        color: #000000; /* Changed to black for maximum contrast */
+        border: 2px solid #e6e6e6; /* Lighter gray border */
+        box-shadow: 0 2px 3px rgba(0,0,0,0.15); /* Enhanced shadow for depth */
     }
     
     .Gold {
@@ -363,6 +353,55 @@
     
     .Admin {
         background-color: #6c757d;
+    }
+
+    .stat-box-horizontal {
+        text-align: center;
+        padding: 15px;
+        margin: 10px;
+        border-radius: 8px;
+        background-color: #f8f9fa;
+        min-width: 150px;
+        flex: 1;
+        height: 120px; /* Fixed height for all stat boxes */
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    
+    /* Make all headings consistent with Standing Time (mins) */
+    .stat-box-horizontal h4 {
+        font-size: 1.2rem;
+        margin-bottom: 10px;
+        line-height: 1.2;
+        overflow-wrap: break-word;
+        word-wrap: break-word;
+        height: 2.4rem; /* Fixed height for all headings */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 0;
+    }
+    
+    /* Remove specific styling for standing-time if it exists */
+    .stat-box-horizontal.standing-time h4 {
+        /* Ensure no special styling here */
+        font-size: 1.2rem;
+    }
+    
+    @media (max-width: 768px) {
+        .d-flex.flex-wrap {
+            justify-content: center;
+        }
+        
+        .stat-box-horizontal {
+            min-width: 130px;
+            margin: 5px;
+        }
+        
+        .stat-box-horizontal h4 {
+            font-size: 1.1rem; /* Slightly smaller on mobile */
+        }
     }
 </style>
 {% endblock %}
