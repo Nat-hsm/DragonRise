@@ -45,16 +45,16 @@ def user_data_access_required(f):
             
     return decorated_function
 
-def verify_csrf_token():
-    """
-    Verify that CSRF token is present and valid for POST requests
-    
-    This function is used by the CSRF protection middleware,
-    but can be called explicitly for additional checks.
-    """
-    # Flask-WTF handles CSRF protection automatically
-    # This function is a placeholder for additional custom checks
-    pass
+# def verify_csrf_token():
+#     """
+#     Verify that CSRF token is present and valid for POST requests
+#     
+#     This function is used by the CSRF protection middleware,
+#     but can be called explicitly for additional checks.
+#     """
+#     # Flask-WTF handles CSRF protection automatically
+#     # This function is a placeholder for additional custom checks
+#     pass
 
 def verify_content_type(required_type='application/x-www-form-urlencoded'):
     """

@@ -58,11 +58,12 @@ if __name__ == '__main__':
         app.run(
             debug=debug_mode,
             ssl_context=ssl_context,
-            host='0.0.0.0'  # Allow connections from other devices
+            host='0.0.0.0',  # Allow connections from other devices
+            port=5001  # Changed from default 5000 to 5001
         )
     else:
         print("WARNING: SSL certificates not found. Running in insecure HTTP mode.")
         print("To enable HTTPS, run 'python generate_cert.py' first.")
         # Use debug mode only in development
         debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
-        app.run(debug=debug_mode)  # Get from environment instead of hardcoding
+        app.run(debug=debug_mode, port=5001)  # Changed from default 5000 to 5001
