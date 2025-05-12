@@ -10,6 +10,7 @@ Flask-Migrate==4.0.4
 # Database adapters
 psycopg2-binary==2.9.9
 SQLAlchemy==2.0.23
+pymysql==1.1.0  # For MySQL connection
 # Image analysis
 boto3>=1.28.0
 Pillow==10.1.0
@@ -20,3 +21,4 @@ cryptography==41.0.4
 # Add these lines if they don't exist
 bleach==6.0.0
 patternomaly==1.3.2
+gunicorn==20.1.0

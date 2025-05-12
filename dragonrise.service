@@ -1,0 +1,15 @@
+[Unit]
+Description=Gunicorn instance to serve DragonRise
+After=network.target
+
+[Service]
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/DragonRise
+Environment="PATH=/home/ec2-user/DragonRise/venv/bin"
+EnvironmentFile=/home/ec2-user/DragonRise/.env.production
+ExecStart=/home/ec2-user/DragonRise/venv/bin/gunicorn --config gunicorn.conf.py wsgi:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

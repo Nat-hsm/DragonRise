@@ -64,6 +64,9 @@ class ProductionConfig(Config):
     DEBUG = False
     TESTING = False
     
+    # Aurora database settings
+    SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://dragonrise_admin:Dragon2025!Rise@dragonrise-aurora.cluster-c05mciuw6fqu.us-east-1.rds.amazonaws.com:3306/dragonrise'
+    
     # Enhanced security for production
     SESSION_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
