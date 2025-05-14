@@ -138,7 +138,7 @@ def index():
     return render_template('index.html', houses=houses)
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("200 per minute")  # Changed from 5 per minute
 def register():
     if request.method == 'POST':
         try:
@@ -187,7 +187,7 @@ def register():
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("200 per minute")  # Changed from 5 per minute
 def login():
     if request.method == 'POST':
         try:
@@ -477,7 +477,7 @@ def delete_user():
 
 @app.route('/log_climb', methods=['POST'])
 @login_required
-@limiter.limit("20 per minute")  # Added rate limiting
+@limiter.limit("200 per minute")  # Changed from 20 per minute
 @verify_content_type('application/x-www-form-urlencoded')
 def log_climb():
     try:
@@ -536,7 +536,7 @@ def log_climb():
 
 @app.route('/log_standing', methods=['POST'])
 @login_required
-@limiter.limit("20 per minute")  # Added rate limiting
+@limiter.limit("200 per minute")  # Changed from 20 per minute
 @verify_content_type('application/x-www-form-urlencoded')
 def log_standing():
     try:
@@ -649,7 +649,7 @@ def log_steps():
 
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
-@limiter.limit("10 per minute")  # Added rate limiting
+@limiter.limit("200 per minute")  # Changed from 10 per minute
 @verify_content_type('multipart/form-data')
 def upload_screenshot():
     try:
@@ -750,6 +750,8 @@ def upload_screenshot():
 
 @app.route('/upload-standing-screenshot', methods=['POST'])
 @login_required
+@limiter.limit("200 per minute")  # Add rate limiting for consistency
+@verify_content_type('multipart/form-data')
 def upload_standing_screenshot():
     try:
         # Check if a file was uploaded
@@ -764,6 +766,15 @@ def upload_standing_screenshot():
             flash('No file selected', 'danger')
             return redirect(url_for('standing_dashboard'))
             
+        # Sanitize the filename
+        original_filename = file.filename
+        sanitized_filename = sanitize_filename(original_filename)
+        
+        if sanitized_filename != original_filename:
+            app.logger.warning(f"Filename sanitized: {original_filename} -> {sanitized_filename}")
+            
+        file.filename = sanitized_filename
+            
         if file and allowed_file(file.filename):
             # Create uploads directory if it doesn't exist
             os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -773,7 +784,19 @@ def upload_standing_screenshot():
             timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
             unique_filename = f"{current_user.id}_standing_{timestamp}_{filename}"
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            
+            # Check file size before saving (limit to 5MB)
+            file.seek(0, os.SEEK_END)
+            file_size = file.tell()
+            if file_size > 5 * 1024 * 1024:  # 5MB
+                flash('File size exceeds the 5MB limit', 'danger')
+                return redirect(url_for('standing_dashboard'))
+                
+            file.seek(0)  # Reset file pointer to beginning
             file.save(filepath)
+            
+            # Log successful upload
+            log_access_attempt(True, "File Upload", f"File {filename} uploaded successfully")
             
             # Create image analyzer and process the image
             image_analyzer = ImageAnalyzer()
@@ -820,6 +843,8 @@ def upload_standing_screenshot():
 
 @app.route('/upload-steps-screenshot', methods=['POST'])
 @login_required
+@limiter.limit("200 per minute")  # Add rate limiting for consistency
+@verify_content_type('multipart/form-data')
 def upload_steps_screenshot():
     try:
         # Check if a file was uploaded
@@ -834,6 +859,15 @@ def upload_steps_screenshot():
             flash('No file selected', 'danger')
             return redirect(url_for('steps_dashboard'))
             
+        # Sanitize the filename
+        original_filename = file.filename
+        sanitized_filename = sanitize_filename(original_filename)
+        
+        if sanitized_filename != original_filename:
+            app.logger.warning(f"Filename sanitized: {original_filename} -> {sanitized_filename}")
+            
+        file.filename = sanitized_filename
+            
         if file and allowed_file(file.filename):
             # Create uploads directory if it doesn't exist
             os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -843,48 +877,19 @@ def upload_steps_screenshot():
             timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
             unique_filename = f"{current_user.id}_steps_{timestamp}_{filename}"
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            
+            # Check file size before saving (limit to 5MB)
+            file.seek(0, os.SEEK_END)
+            file_size = file.tell()
+            if file_size > 5 * 1024 * 1024:  # 5MB
+                flash('File size exceeds the 5MB limit', 'danger')
+                return redirect(url_for('steps_dashboard'))
+                
+            file.seek(0)  # Reset file pointer to beginning
             file.save(filepath)
             
-            # Create image analyzer and process the image
-            image_analyzer = ImageAnalyzer()
-            file.seek(0)  # Reset file pointer to beginning
-            result = image_analyzer.analyze_steps_image(file)
-            
-            if result.get('success'):
-                steps = result.get('steps', 0)
-                
-                if hasattr(current_user, 'total_steps'):
-                    # Check if it's peak hour for multiplier
-                    multiplier = get_points_multiplier()
-                    points = (steps // 100) * multiplier
-                    
-                    # Log the steps
-                    log = StepLog(user_id=current_user.id, steps=steps, points=points)
-                    
-                    # Update user stats
-                    current_user.total_steps += steps
-                    current_user.total_points += points
-                    
-                    # Update house points
-                    house = House.query.filter_by(name=current_user.house).first()
-                    if house:
-                        house.total_points += points
-                        if hasattr(house, 'total_steps'):
-                            house.total_steps += steps
-                    
-                    db.session.add(log)
-                    db.session.commit()
-                    
-                    # Add multiplier info to the message if applicable
-                    multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                    log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{steps} steps{multiplier_text}')
-                    flash(f'Successfully processed screenshot! Added {points} points for {steps} steps.{multiplier_text}', 'success')
-                else:
-                    flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
-            else:
-                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
-        else:
-            flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
+            # Log successful upload
+            log_access_attempt(True, "File Upload", f"File {filename} uploaded successfully")
     except Exception as e:
         app.logger.error(f'Steps screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')

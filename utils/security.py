@@ -24,7 +24,7 @@ def init_security(app):
     # Add rate limit decorators
     def limit_requests(f):
         @wraps(f)
-        @limiter.limit("5 per minute")
+        @limiter.limit("200 per minute")  # Changed from 5 per minute
         def decorated_function(*args, **kwargs):
             return f(*args, **kwargs)
         return decorated_function

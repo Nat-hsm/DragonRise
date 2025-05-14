@@ -70,7 +70,7 @@ def index():
     return render_template('index.html', houses=houses)
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("200 per minute")  # Changed from 5 per minute
 def register():
     if request.method == 'POST':
         try:
@@ -114,7 +114,7 @@ def register():
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("200 per minute")  # Changed from 5 per minute
 def login():
     if request.method == 'POST':
         try:
