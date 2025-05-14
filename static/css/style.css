@@ -60,7 +60,12 @@ body {
 .Green { background-color: var(--green-house); color: white; }
 .Green::after { filter: hue-rotate(120deg); }
 
-.White { background-color: var(--white-house); color: black; }
+.White {
+    background-color: var(--white-house);
+    color: #000000; /* Changed to black for maximum contrast */
+    border: 2px solid #e6e6e6; /* Lighter gray border */
+    box-shadow: 0 2px 3px rgba(0,0,0,0.15); /* Enhanced shadow for depth */
+}
 .White::after { filter: brightness(0.6); }
 
 .Gold { background-color: var(--gold-house); color: black; }
@@ -68,6 +73,10 @@ body {
 
 .Purple { background-color: var(--purple-house); color: white; }
 .Purple::after { filter: hue-rotate(270deg); }
+
+.Admin {
+    background-color: #6c757d;
+}
 
 /* Ensure content appears above the dragon image */
 .house-card h3,
@@ -137,6 +146,14 @@ body {
     display: inline-block;
     min-width: 80px;
     text-align: center;
+}
+
+/* House-specific styles for house badges */
+.house-badge.White {
+    background-color: var(--white-house);
+    color: #000000; /* Changed to black for maximum contrast */
+    border: 2px solid #e6e6e6; /* Lighter gray border */
+    box-shadow: 0 2px 3px rgba(0,0,0,0.15); /* Enhanced shadow for depth */
 }
 
 .nav-tabs .nav-link {
@@ -227,4 +244,37 @@ body {
         height: auto;
         margin-bottom: 20px;
     }
+}
+/* Active nav link styling */
+.navbar-dark .navbar-nav .nav-link.active {
+    color: #ffffff;
+    font-weight: bold;
+}
+/* Loading spinner */
+.loading-spinner {
+    display: none;
+    text-align: center;
+    margin-top: 10px;
+}
+
+.loading-spinner .spinner-border {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 8px;
+}
+
+.loading-text {
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* Stat box horizontal styling */
+.stat-box-horizontal {
+    text-align: center;
+    padding: 15px;
+    margin: 10px;
+    border-radius: 8px;
+    background-color: #f8f9fa;
+    min-width: 150px;
+    flex: 1;
 }

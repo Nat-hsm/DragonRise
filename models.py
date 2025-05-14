@@ -126,12 +126,6 @@ class House(db.Model):
         """Decrement member count"""
         if self.member_count > 0:
             self.member_count -= 1
-            
-    def update_steps(self, steps):
-        """Update house steps and points"""
-        self.total_steps += steps
-        # Add points for steps (1 point per 100 steps)
-        self.total_points += steps // 100
 
     def __repr__(self):
         return f'<House {self.name}>'
@@ -224,29 +218,12 @@ class StepLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     steps = db.Column(db.Integer, nullable=False)  # Number of steps
     points = db.Column(db.Integer, nullable=False)  # Points earned (1 per 100 steps)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    notes = db.Column(db.String(200))  # Optional notes
-
-    # Indexes
-    __table_args__ = (
-        Index('idx_step_user_timestamp', 'user_id', 'timestamp'),
-        Index('idx_step_timestamp', 'timestamp'),
-    )
-
-    def __init__(self, user_id, steps, points=None, notes=None):
-        self.user_id = user_id
-        self.steps = steps
-        # Default: 1 point per 100 steps, rounded down
-        self.points = points if points is not None else steps // 100
-        if notes:
-            self.notes = notes
+    timestamp = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    notes = db.Column(db.Text, nullable=True)
 
     @property
     def formatted_timestamp(self):
-        """Return formatted timestamp in local time (UTC+8)"""
-        # Convert UTC time to local time (UTC+8)
-        local_time = self.timestamp + timedelta(hours=8)
-        return local_time.strftime('%Y-%m-%d %H:%M:%S')
+        return self.timestamp.strftime('%Y-%m-%d %H:%M')
 
     def __repr__(self):
         return f'<StepLog {self.user_id} - {self.steps} steps>'

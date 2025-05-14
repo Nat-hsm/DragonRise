@@ -2,55 +2,28 @@
 Migration script to add steps-related columns and tables to the database
 """
 from app import app, db
-from sqlalchemy import text
+from sqlalchemy import Column, Integer
+from models import User, House, StepLog
 
-def migrate():
+def add_steps_columns():
     with app.app_context():
-        try:
-            print("Starting migration to add steps columns...")
+        # Check if total_steps column exists for User
+        if not hasattr(User, 'total_steps'):
+            db.engine.execute('ALTER TABLE users ADD COLUMN total_steps INTEGER DEFAULT 0')
+            print("Added total_steps column to User model")
             
-            # Add total_steps column to users table if it doesn't exist
-            try:
-                db.session.execute(text("ALTER TABLE users ADD COLUMN total_steps INTEGER DEFAULT 0"))
-                print("Added total_steps column to users table")
-            except Exception as e:
-                print(f"Note: {str(e)}")
-                print("Column may already exist or there was an error")
+        # Check if total_steps column exists for House
+        if not hasattr(House, 'total_steps'):
+            db.engine.execute('ALTER TABLE houses ADD COLUMN total_steps INTEGER DEFAULT 0')
+            print("Added total_steps column to House model")
             
-            # Add total_steps column to houses table if it doesn't exist
-            try:
-                db.session.execute(text("ALTER TABLE houses ADD COLUMN total_steps INTEGER DEFAULT 0"))
-                print("Added total_steps column to houses table")
-            except Exception as e:
-                print(f"Note: {str(e)}")
-                print("Column may already exist or there was an error")
+        # Create step_logs table if it doesn't exist
+        if not db.engine.has_table('step_logs'):
+            StepLog.__table__.create(db.engine)
+            print("Created step_logs table")
             
-            # Create step_logs table if it doesn't exist
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS step_logs (
-                    id INTEGER PRIMARY KEY,
-                    user_id INTEGER NOT NULL,
-                    steps INTEGER NOT NULL,
-                    points INTEGER NOT NULL,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    notes VARCHAR(200),
-                    FOREIGN KEY (user_id) REFERENCES users (id)
-                )
-            """))
-            print("Created step_logs table (if it didn't exist)")
-            
-            # Create indexes for step_logs table
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_step_user_timestamp ON step_logs (user_id, timestamp)"))
-            db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_step_timestamp ON step_logs (timestamp)"))
-            print("Created indexes for step_logs table")
-            
-            db.session.commit()
-            print("Migration completed successfully!")
-            
-        except Exception as e:
-            db.session.rollback()
-            print(f"Migration failed: {str(e)}")
-            raise e
+        db.session.commit()
+        print("Database schema updated successfully for steps tracking")
 
-if __name__ == "__main__":
-    migrate()
+if __name__ == '__main__':
+    add_steps_columns()

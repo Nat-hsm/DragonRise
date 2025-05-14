@@ -1,106 +1,70 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.so
 .Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
 venv/
+ENV/
+env/
 
 # Flask
 instance/
-*.db
+.webassets-cache
 
-# Environment variables
-.env
-.env.*
+# Database
+*.db
+*.sqlite
+*.sqlite3
 
 # Logs
 logs/
 *.log
 
-# IDE files
-.vscode/
-.idea/
-
-# Uploads
-static/uploads/
-EOF# Create a clean .gitignore file
-cat > /Users/nat/Git/DragonRise/.gitignore << 'EOF'
-# Python
-__pycache__/
-*.py[cod]
-*.so
-.Python
-venv/
-
-# Flask
-instance/
-*.db
-
 # Environment variables
 .env
 .env.*
+!.env.example
 
-# Logs
-logs/
-*.log
+# Certificates and keys - SECURITY SENSITIVE
+certificates/
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.truststore
 
-# IDE files
-.vscode/
+# IDE
 .idea/
+.vscode/
+*.swp
+*.swo
 
 # Uploads
 static/uploads/
-EOF# Create a clean .gitignore file
-cat > /Users/nat/Git/DragonRise/.gitignore << 'EOF'
-# Python
-__pycache__/
-*.py[cod]
-*.so
-.Python
-venv/
 
-# Flask
-instance/
-*.db
-
-# Environment variables
-.env
-.env.*
-
-# Logs
-logs/
-*.log
-
-# IDE files
-.vscode/
-.idea/
-
-# Uploads
-static/uploads/
-EOF# Create a clean .gitignore file
-cat > /Users/nat/Git/DragonRise/.gitignore << 'EOF'
-# Python
-__pycache__/
-*.py[cod]
-*.so
-.Python
-venv/
-
-# Flask
-instance/
-*.db
-
-# Environment variables
-.env
-.env.*
-
-# Logs
-logs/
-*.log
-
-# IDE files
-.vscode/
-.idea/
-
-# Uploads
-static/uploads/
+# OS specific
+.DS_Store
+Thumbs.db

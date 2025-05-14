@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="stats-card">
+            <h2>Analytics Error</h2>
+            <div class="alert alert-warning">
+                <p>There was an error loading the analytics data. Please try again later or contact the administrator.</p>
+                <p>Error details: {{ error_message }}</p>
+            </div>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-primary">Return to Admin Dashboard</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
