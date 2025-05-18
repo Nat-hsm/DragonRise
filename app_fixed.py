@@ -657,43 +657,54 @@ def upload_screenshot():
             timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
             unique_filename = f"{current_user.id}_{timestamp}_{filename}"
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            
+            # Save file first
             file.save(filepath)
+            app.logger.info(f"Saved file: {filepath}")
             
             # Create image analyzer and process the image
-            image_analyzer = ImageAnalyzer()
-            file.seek(0)  # Reset file pointer to beginning
-            result = image_analyzer.analyze_image(file)
-            
-            if result.get('success'):
-                flights = result.get('flights')
-                timestamp_str = result.get('timestamp')
+            try:
+                image_analyzer = ImageAnalyzer()
+                file.seek(0)  # Reset file pointer to beginning
+                result = image_analyzer.analyze_image(file)
                 
-                # Check if it's peak hour for multiplier
-                multiplier = get_points_multiplier()
-                points = flights * 10 * multiplier
-                
-                # Log the climb
-                log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
-                
-                # Update user stats
-                current_user.total_flights += flights
-                current_user.total_points += points
-                
-                # Update house points
-                house = House.query.filter_by(name=current_user.house).first()
-                if house:
-                    house.total_points += points
-                    house.total_flights += flights
-                
-                db.session.add(log)
-                db.session.commit()
-                
-                # Add multiplier info to the message if applicable
-                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights{multiplier_text}')
-                flash(f'Successfully processed screenshot! Added {points} points for {flights} flights.{multiplier_text}', 'success')
-            else:
-                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
+                if result.get('success'):
+                    flights = result.get('flights')
+                    
+                    # Check if it's peak hour for multiplier
+                    multiplier = get_points_multiplier()
+                    points = flights * 10 * multiplier
+                    
+                    # Add fallback notice if applicable
+                    fallback_notice = " (using estimate)" if result.get('fallback_used') else ""
+                    
+                    # Log the climb
+                    log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
+                    
+                    # Update user stats
+                    current_user.total_flights += flights
+                    current_user.total_points += points
+                    
+                    # Update house points
+                    house = House.query.filter_by(name=current_user.house).first()
+                    if house:
+                        house.total_points += points
+                        house.total_flights += flights
+                    
+                    db.session.add(log)
+                    db.session.commit()
+                    
+                    # Add multiplier info to the message if applicable
+                    multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+                    log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights{multiplier_text}{fallback_notice}')
+                    flash(f'Successfully processed screenshot! Added {points} points for {flights} flights.{multiplier_text}{fallback_notice}', 'success')
+                else:
+                    error_msg = result.get("error", "Unknown error")
+                    app.logger.error(f"Screenshot processing error: {error_msg}")
+                    flash(f'Could not process screenshot: {error_msg}', 'danger')
+            except Exception as e:
+                app.logger.error(f'Image processing error: {str(e)}')
+                flash(f'Error processing upload: {str(e)}', 'danger')
         else:
             flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
     except Exception as e:
@@ -802,43 +813,51 @@ def upload_steps_screenshot():
             file.save(filepath)
             
             # Create image analyzer and process the image
-            image_analyzer = ImageAnalyzer()
-            file.seek(0)  # Reset file pointer to beginning
-            result = image_analyzer.analyze_steps_image(file)
-            
-            if result.get('success'):
-                steps = result.get('steps')
+            try:
+                image_analyzer = ImageAnalyzer()
+                file.seek(0)  # Reset file pointer to beginning
+                result = image_analyzer.analyze_steps_image(file)
                 
-                # Check if it's peak hour for multiplier
-                multiplier = get_points_multiplier()
-                points = (steps // 100) * multiplier
-                
-                # Log the steps
-                log = StepLog(user_id=current_user.id, steps=steps, points=points)
-                
-                # Update user stats
-                if hasattr(current_user, 'total_steps'):
-                    current_user.total_steps += steps
-                    current_user.total_points += points
+                if result.get('success'):
+                    steps = result.get('steps')
                     
-                    # Update house points
-                    house = House.query.filter_by(name=current_user.house).first()
-                    if house:
-                        house.total_points += points
-                        if hasattr(house, 'total_steps'):
-                            house.total_steps += steps
+                    # Check if it's peak hour for multiplier
+                    multiplier = get_points_multiplier()
+                    points = (steps // 100) * multiplier
                     
-                    db.session.add(log)
-                    db.session.commit()
+                    # Log the steps
+                    log = StepLog(user_id=current_user.id, steps=steps, points=points)
                     
-                    # Add multiplier info to the message if applicable
-                    multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                    log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{steps} steps{multiplier_text}')
-                    flash(f'Successfully processed screenshot! Added {points} points for {steps} steps.{multiplier_text}', 'success')
+                    # Update user stats
+                    if hasattr(current_user, 'total_steps'):
+                        current_user.total_steps += steps
+                        current_user.total_points += points
+                        
+                        # Update house points
+                        house = House.query.filter_by(name=current_user.house).first()
+                        if house:
+                            house.total_points += points
+                            if hasattr(house, 'total_steps'):
+                                house.total_steps += steps
+                        
+                        db.session.add(log)
+                        db.session.commit()
+                        
+                        # Add fallback info if applicable
+                        fallback_text = " (using fallback)" if result.get('fallback_used') else ""
+                        # Add multiplier info if applicable
+                        multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+                        
+                        log_activity(app, current_user.id, 'Screenshot Steps Logged', 
+                                    f'{steps} steps{multiplier_text}{fallback_text}')
+                        flash(f'Successfully processed screenshot! Added {points} points for {steps} steps.{multiplier_text}{fallback_text}', 'success')
+                    else:
+                        flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
                 else:
-                    flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
-            else:
-                flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
+                    flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
+            except Exception as e:
+                app.logger.error(f'Steps image processing error: {str(e)}')
+                flash('Error processing upload: ' + str(e), 'danger')
         else:
             flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
     except Exception as e:

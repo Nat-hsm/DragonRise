@@ -133,7 +133,7 @@ generate_self_signed_cert(cert_file, key_file)
 # Create WSGI file
 echo -e "${GREEN}Creating WSGI file...${NC}"
 cat > /tmp/wsgi.py << 'EOF'
-from app import app
+from app_fixed import app
 
 if __name__ == "__main__":
     app.run()
