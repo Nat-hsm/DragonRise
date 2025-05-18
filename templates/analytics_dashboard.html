@@ -2,6 +2,21 @@
 {% block styles %}
     {{ super() }}
     <!-- CSS is now consolidated in style.css -->
+    <style>
+        #barChartsSection, #pieChartsSection {
+            transition: opacity 0.3s ease;
+        }
+        
+        .chart-container {
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+        
+        /* Add this to ensure pie charts render properly */
+        #pieChartsSection .chart-container canvas {
+            visibility: visible !important;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}

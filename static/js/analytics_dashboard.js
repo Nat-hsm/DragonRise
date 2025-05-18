@@ -78,12 +78,19 @@ document.addEventListener('DOMContentLoaded', function() {
         // Set button states
         updateButtonStyles();
         
+        // Add fixed opacity to chart sections at startup
+        document.getElementById('barChartsSection').style.opacity = '1';
+        document.getElementById('pieChartsSection').style.opacity = '0';
+        
         // Create charts
         createBarCharts();
         createPieCharts();
         
         // Set up event listeners
         setupEventListeners();
+        
+        // Call our size function after initial setup
+        setConsistentChartSizes();
     } catch (error) {
         console.error('Error initializing analytics dashboard:', error);
         displayChartError('Failed to initialize analytics dashboard: ' + error.message);
@@ -152,51 +159,167 @@ function updateButtonStyles() {
     });
 }
 
-// Toggle between bar and pie charts
+// Update the setConsistentChartSizes function
+function setConsistentChartSizes() {
+    // Apply a strict height structure to all chart elements
+    document.querySelectorAll('.chart-container').forEach(container => {
+        container.style.height = '600px';
+        container.style.minHeight = '600px';
+        container.style.maxHeight = '600px';
+        
+        const statsCard = container.querySelector('.stats-card');
+        if (statsCard) {
+            statsCard.style.height = '560px';
+            statsCard.style.minHeight = '560px';
+            statsCard.style.maxHeight = '560px';
+            statsCard.classList.add('fixed-height');
+            
+            const chartWrapper = statsCard.querySelector('.chart-wrapper');
+            if (chartWrapper) {
+                chartWrapper.style.height = '480px';
+                chartWrapper.style.minHeight = '480px';
+                chartWrapper.style.maxHeight = '480px';
+            }
+        }
+    });
+    
+    ['barChartsSection', 'pieChartsSection'].forEach(id => {
+        const section = document.getElementById(id);
+        if (section) {
+            section.style.height = '650px';
+            section.style.minHeight = '650px';
+            section.style.overflow = 'hidden';
+        }
+    });
+}
+
+// Modify the toggleChartType function to fix pie chart display
 function toggleChartType(type) {
+    // Destroy all charts first
     destroyAllCharts();
     
+    // Store scroll position
+    const scrollPos = window.scrollY;
+    
+    // Force consistent sizes
+    setConsistentChartSizes();
+    
+    // Get sections
+    const barSection = document.getElementById('barChartsSection');
+    const pieSection = document.getElementById('pieChartsSection');
+    
     if (type === 'bar') {
-        document.getElementById('barChartsSection').style.display = 'block';
-        document.getElementById('pieChartsSection').style.display = 'none';
-        
+        // Update button styles immediately
         document.getElementById('barChartBtn').classList.add('active', 'btn-primary');
         document.getElementById('barChartBtn').classList.remove('btn-outline-primary');
         document.getElementById('pieChartBtn').classList.remove('active', 'btn-primary');
         document.getElementById('pieChartBtn').classList.add('btn-outline-primary');
-    } else {
-        document.getElementById('barChartsSection').style.display = 'none';
-        document.getElementById('pieChartsSection').style.display = 'block';
         
+        // Hide pie charts completely first
+        pieSection.style.display = 'none';
+        
+        // Show bar section
+        barSection.style.display = 'block';
+        
+        // Get active data type
+        const activeDataBtn = document.querySelector('.btn-group .btn-success.active');
+        const dataType = activeDataBtn ? activeDataBtn.id.replace('DataBtn', '') : 'climb';
+        
+        // Hide all bar chart containers
+        document.querySelectorAll('#barChartsSection .chart-container').forEach(el => {
+            el.style.display = 'none';
+        });
+        
+        // Show only the active bar chart container
+        const targetContainer = document.getElementById(`${dataType}BarChartContainer`);
+        if (targetContainer) {
+            targetContainer.style.display = 'block';
+        }
+        
+        // Create bar charts with slight delay for DOM update
+        setTimeout(() => {
+            setConsistentChartSizes();
+            createBarCharts();
+            window.scrollTo(0, scrollPos);
+        }, 50);
+    } else {
+        // Update button styles immediately
         document.getElementById('pieChartBtn').classList.add('active', 'btn-primary');
         document.getElementById('pieChartBtn').classList.remove('btn-outline-primary');
         document.getElementById('barChartBtn').classList.remove('active', 'btn-primary');
         document.getElementById('barChartBtn').classList.add('btn-outline-primary');
+        
+        // Hide bar charts completely first
+        barSection.style.display = 'none';
+        
+        // Show pie section
+        pieSection.style.display = 'block';
+        pieSection.style.visibility = 'visible'; // Ensure visibility
+        pieSection.style.opacity = '1';
+        
+        // Get active data type
+        const activeDataBtn = document.querySelector('.btn-group .btn-success.active');
+        const dataType = activeDataBtn ? activeDataBtn.id.replace('DataBtn', '') : 'climb';
+        
+        // Make all pie chart containers visible temporarily (for chart creation)
+        document.querySelectorAll('#pieChartsSection .chart-container').forEach(el => {
+            el.style.display = 'block';
+            el.style.visibility = 'visible';
+            el.style.opacity = '0.01'; // Nearly invisible but still rendered
+        });
+        
+        // Create charts immediately while containers are visible
+        createPieCharts();
+        
+        // Hide all pie chart containers except target
+        document.querySelectorAll('#pieChartsSection .chart-container').forEach(el => {
+            if (el.id !== `${dataType}PieChartContainer`) {
+                el.style.display = 'none';
+            } else {
+                el.style.opacity = '1'; // Make target container fully visible
+            }
+        });
+        
+        // Scroll to previous position
+        window.scrollTo(0, scrollPos);
     }
-    
-    // Get active data type
-    const activeDataBtn = document.querySelector('.btn-group .btn-success.active');
-    const dataType = activeDataBtn ? activeDataBtn.id.replace('DataBtn', '') : 'climb';
-    
-    // Show appropriate chart container
-    const container = document.getElementById(`${dataType}${type.charAt(0).toUpperCase() + type.slice(1)}ChartContainer`);
-    if (container) container.style.display = 'block';
-    
-    // Recreate charts
-    createBarCharts();
-    createPieCharts();
 }
 
-// Toggle data type (climb, standing, steps, combined)
+// Update the toggleDataType function
 function toggleDataType(type) {
+    // Store scroll position
+    const scrollPos = window.scrollY;
+    
+    // Ensure all containers have the same height
     document.querySelectorAll('.chart-container').forEach(container => {
-        container.style.display = 'none';
+        container.style.height = '600px';
+        container.style.minHeight = '600px';
     });
     
+    // Determine which chart type is active
     const isBarActive = document.getElementById('barChartBtn').classList.contains('active');
     const chartType = isBarActive ? 'Bar' : 'Pie';
     
-    document.getElementById(`${type}${chartType}ChartContainer`).style.display = 'block';
+    // Hide all with opacity transition
+    document.querySelectorAll('.chart-container').forEach(container => {
+        container.style.opacity = '0';
+        setTimeout(() => {
+            container.style.display = 'none';
+        }, 300);
+    });
+    
+    // Show the target container
+    const targetContainer = document.getElementById(`${type}${chartType}ChartContainer`);
+    if (targetContainer) {
+        setTimeout(() => {
+            targetContainer.style.display = 'block';
+            setTimeout(() => {
+                targetContainer.style.opacity = '1';
+                // Restore scroll position
+                window.scrollTo(0, scrollPos);
+            }, 50);
+        }, 300);
+    }
     
     // Update button styles
     ['climbDataBtn', 'standingDataBtn', 'stepsDataBtn', 'combinedDataBtn'].forEach(id => {
@@ -214,6 +337,48 @@ function toggleDataType(type) {
 // Create bar charts 
 function createBarCharts() {
     try {
+        // Add this line at the beginning of the function
+        setConsistentChartSizes();
+        
+        // Common options for all charts with strict height control
+        const commonChartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                title: {
+                    font: { size: 18 }
+                }
+            },
+            animation: {
+                duration: 500
+            },
+            layout: {
+                padding: {
+                    top: 20,
+                    right: 20,
+                    bottom: 20,
+                    left: 20
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        padding: 10
+                    }
+                },
+                x: {
+                    ticks: {
+                        padding: 10
+                    }
+                }
+            }
+        };
+        
         // Climbing bar chart
         const climbCtx = document.getElementById('climbBarChart').getContext('2d');
         climbBarChart = new Chart(climbCtx, {
@@ -228,24 +393,12 @@ function createBarCharts() {
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Points'
-                        }
-                    }
-                },
+                ...commonChartOptions,
                 plugins: {
                     title: {
                         display: true,
-                        text: 'Climbing Points by House',
-                        font: { size: 18 }
-                    },
-                    legend: { display: false }
+                        text: 'Climbing Points by House'
+                    }
                 }
             }
         });
@@ -264,20 +417,12 @@ function createBarCharts() {
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true
-                    }
-                },
+                ...commonChartOptions,
                 plugins: {
                     title: {
                         display: true,
-                        text: 'Standing Points by House',
-                        font: { size: 18 }
-                    },
-                    legend: { display: false }
+                        text: 'Standing Points by House'
+                    }
                 }
             }
         });
@@ -296,13 +441,11 @@ function createBarCharts() {
                 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
+                ...commonChartOptions,
                 plugins: {
                     title: {
                         display: true,
-                        text: 'Steps Points by House',
-                        font: { size: 18 }
+                        text: 'Steps Points by House'
                     }
                 }
             }
@@ -336,11 +479,9 @@ function createBarCharts() {
                 ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
+                ...commonChartOptions,
                 scales: {
                     y: {
-                        beginAtZero: true,
                         stacked: false
                     },
                     x: {
@@ -350,8 +491,7 @@ function createBarCharts() {
                 plugins: {
                     title: {
                         display: true,
-                        text: 'Combined Points by House',
-                        font: { size: 18 }
+                        text: 'Combined Points by House'
                     }
                 }
             }
@@ -362,115 +502,170 @@ function createBarCharts() {
     }
 }
 
-// Create pie charts
+// Update the createPieCharts function to implement all four pie chart types
 function createPieCharts() {
     try {
-        // Climbing pie chart
-        const climbPieCtx = document.getElementById('climbPieChart').getContext('2d');
-        climbPieChart = new Chart(climbPieCtx, {
-            type: 'pie',
-            data: {
-                labels: houseNames,
-                datasets: [{
-                    data: climbingData.points || [],
-                    backgroundColor: houseColors,
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Climbing Points Distribution',
-                        font: { size: 18 }
-                    },
-                    legend: { position: 'right' }
+        // Ensure consistent sizes first
+        setConsistentChartSizes();
+        
+        // Common options with guaranteed height
+        const commonPieOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        boxWidth: 15,
+                        padding: 10
+                    }
+                },
+                title: {
+                    display: true,
+                    font: { size: 18 }
                 }
+            },
+            animation: {
+                duration: 500
+            },
+            layout: {
+                padding: 20
             }
-        });
+        };
+        
+        console.log('Creating pie charts with containers visible');
+        
+        // Climbing pie chart
+        const climbPieCtx = document.getElementById('climbPieChart');
+        if (climbPieCtx) {
+            // Force canvas dimensions
+            climbPieCtx.style.height = '480px';
+            climbPieCtx.style.width = '100%';
+            
+            climbPieChart = new Chart(climbPieCtx.getContext('2d'), {
+                type: 'pie',
+                data: {
+                    labels: houseNames,
+                    datasets: [{
+                        data: climbingData.points || [],
+                        backgroundColor: houseColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    ...commonPieOptions,
+                    plugins: {
+                        ...commonPieOptions.plugins,
+                        title: {
+                            ...commonPieOptions.plugins.title,
+                            text: 'Climbing Points Distribution'
+                        }
+                    }
+                }
+            });
+        } else {
+            console.error('Could not find climbing pie chart canvas');
+        }
         
         // Standing pie chart
-        const standingPieCtx = document.getElementById('standingPieChart').getContext('2d');
-        standingPieChart = new Chart(standingPieCtx, {
-            type: 'pie',
-            data: {
-                labels: houseNames,
-                datasets: [{
-                    data: standingData.points || [],
-                    backgroundColor: houseColors,
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Standing Points Distribution',
-                        font: { size: 18 }
-                    },
-                    legend: { position: 'right' }
+        const standingPieCtx = document.getElementById('standingPieChart');
+        if (standingPieCtx) {
+            // Force canvas dimensions
+            standingPieCtx.style.height = '480px';
+            standingPieCtx.style.width = '100%';
+            
+            standingPieChart = new Chart(standingPieCtx.getContext('2d'), {
+                type: 'pie',
+                data: {
+                    labels: houseNames,
+                    datasets: [{
+                        data: standingData.points || [],
+                        backgroundColor: houseColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    ...commonPieOptions,
+                    plugins: {
+                        ...commonPieOptions.plugins,
+                        title: {
+                            ...commonPieOptions.plugins.title,
+                            text: 'Standing Time Distribution'
+                        }
+                    }
                 }
-            }
-        });
+            });
+        } else {
+            console.error('Could not find standing pie chart canvas');
+        }
         
         // Steps pie chart
-        const stepsPieCtx = document.getElementById('stepsPieChart').getContext('2d');
-        stepsPieChart = new Chart(stepsPieCtx, {
-            type: 'pie',
-            data: {
-                labels: houseNames,
-                datasets: [{
-                    data: stepsData.points || [],
-                    backgroundColor: houseColors,
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Steps Points Distribution',
-                        font: { size: 18 }
-                    },
-                    legend: { position: 'right' }
+        const stepsPieCtx = document.getElementById('stepsPieChart');
+        if (stepsPieCtx) {
+            // Force canvas dimensions
+            stepsPieCtx.style.height = '480px';
+            stepsPieCtx.style.width = '100%';
+            
+            stepsPieChart = new Chart(stepsPieCtx.getContext('2d'), {
+                type: 'pie',
+                data: {
+                    labels: houseNames,
+                    datasets: [{
+                        data: stepsData.points || [],
+                        backgroundColor: houseColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    ...commonPieOptions,
+                    plugins: {
+                        ...commonPieOptions.plugins,
+                        title: {
+                            ...commonPieOptions.plugins.title,
+                            text: 'Steps Points Distribution'
+                        }
+                    }
                 }
-            }
-        });
+            });
+        } else {
+            console.error('Could not find steps pie chart canvas');
+        }
         
         // Combined pie chart
-        const combinedPieCtx = document.getElementById('combinedPieChart').getContext('2d');
-        combinedPieChart = new Chart(combinedPieCtx, {
-            type: 'pie',
-            data: {
-                labels: houseNames,
-                datasets: [{
-                    data: combinedData.total_points || [],
-                    backgroundColor: houseColors,
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Total Points Distribution',
-                        font: { size: 18 }
-                    },
-                    legend: { position: 'right' }
+        const combinedPieCtx = document.getElementById('combinedPieChart');
+        if (combinedPieCtx) {
+            // Force canvas dimensions
+            combinedPieCtx.style.height = '480px';
+            combinedPieCtx.style.width = '100%';
+            
+            combinedPieChart = new Chart(combinedPieCtx.getContext('2d'), {
+                type: 'pie',
+                data: {
+                    labels: houseNames,
+                    datasets: [{
+                        data: combinedData.total_points || [],
+                        backgroundColor: houseColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    ...commonPieOptions,
+                    plugins: {
+                        ...commonPieOptions.plugins,
+                        title: {
+                            ...commonPieOptions.plugins.title,
+                            text: 'Total Points Distribution'
+                        }
+                    }
                 }
-            }
-        });
+            });
+        } else {
+            console.error('Could not find combined pie chart canvas');
+        }
+        
     } catch (error) {
         console.error('Error creating pie charts:', error);
-        displayChartError('Error creating charts: ' + error.message);
+        displayChartError('Error creating pie charts: ' + error.message);
     }
 }
 
