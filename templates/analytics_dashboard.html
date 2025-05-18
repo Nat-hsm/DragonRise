@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block styles %}
     {{ super() }}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/analytics.css') }}">
+    <!-- CSS is now consolidated in style.css -->
 {% endblock %}
 
 {% block content %}
@@ -47,9 +47,11 @@
     <div class="row">
         <!-- Climbing Bar Chart -->
         <div class="col-md-12 mb-4 chart-container" id="climbBarChartContainer">
-            <div class="stats-card">
+            <div class="stats-card h-100">
                 <h3>Climbing Data by House</h3>
-                <canvas id="climbBarChart"></canvas>
+                <div class="chart-wrapper">
+                    <canvas id="climbBarChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -57,9 +59,11 @@
     <div class="row">
         <!-- Standing Bar Chart -->
         <div class="col-md-12 mb-4 chart-container" id="standingBarChartContainer" style="display: none;">
-            <div class="stats-card">
+            <div class="stats-card h-100">
                 <h3>Standing Time by House</h3>
-                <canvas id="standingBarChart"></canvas>
+                <div class="chart-wrapper">
+                    <canvas id="standingBarChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -67,9 +71,11 @@
     <div class="row">
         <!-- Steps Bar Chart -->
         <div class="col-md-12 mb-4 chart-container" id="stepsBarChartContainer" style="display: none;">
-            <div class="stats-card">
+            <div class="stats-card h-100">
                 <h3>Steps by House</h3>
-                <canvas id="stepsBarChart"></canvas>
+                <div class="chart-wrapper">
+                    <canvas id="stepsBarChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -77,9 +83,11 @@
     <div class="row">
         <!-- Combined Bar Chart -->
         <div class="col-md-12 mb-4 chart-container" id="combinedBarChartContainer" style="display: none;">
-            <div class="stats-card">
+            <div class="stats-card h-100">
                 <h3>Combined Performance by House</h3>
-                <canvas id="combinedBarChart"></canvas>
+                <div class="chart-wrapper">
+                    <canvas id="combinedBarChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -90,9 +98,11 @@
     <div class="row">
         <!-- Climbing Pie Chart -->
         <div class="col-md-12 mb-4 chart-container" id="climbPieChartContainer">
-            <div class="stats-card">
+            <div class="stats-card h-100">
                 <h3>Climbing Points Distribution</h3>
-                <canvas id="climbPieChart"></canvas>
+                <div class="chart-wrapper">
+                    <canvas id="climbPieChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -100,9 +110,11 @@
     <div class="row">
         <!-- Standing Pie Chart -->
         <div class="col-md-12 mb-4 chart-container" id="standingPieChartContainer" style="display: none;">
-            <div class="stats-card">
+            <div class="stats-card h-100">
                 <h3>Standing Time Distribution</h3>
-                <canvas id="standingPieChart"></canvas>
+                <div class="chart-wrapper">
+                    <canvas id="standingPieChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -110,9 +122,11 @@
     <div class="row">
         <!-- Steps Pie Chart -->
         <div class="col-md-12 mb-4 chart-container" id="stepsPieChartContainer" style="display: none;">
-            <div class="stats-card">
+            <div class="stats-card h-100">
                 <h3>Steps Distribution</h3>
-                <canvas id="stepsPieChart"></canvas>
+                <div class="chart-wrapper">
+                    <canvas id="stepsPieChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -120,9 +134,11 @@
     <div class="row">
         <!-- Combined Pie Chart -->
         <div class="col-md-12 mb-4 chart-container" id="combinedPieChartContainer" style="display: none;">
-            <div class="stats-card">
+            <div class="stats-card h-100">
                 <h3>Total Points Distribution</h3>
-                <canvas id="combinedPieChart"></canvas>
+                <div class="chart-wrapper">
+                    <canvas id="combinedPieChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -167,19 +183,20 @@
 </div>
 
 <div id="chartDataContainer" 
-    data-house-names="{{ house_names|tojson }}"
-    data-house-colors="{{ house_colors|tojson }}"
-    data-climbing="{{ climbing_data|tojson }}"
-    data-standing="{{ standing_data|tojson }}"
-    data-steps="{{ steps_data|tojson }}"
-    data-combined="{{ combined_data|tojson }}"
+    data-house-names="{{ house_names }}"
+    data-house-colors="{{ house_colors }}"
+    data-climbing="{{ climbing_data }}"
+    data-standing="{{ standing_data }}"
+    data-steps="{{ steps_data }}"
+    data-combined="{{ combined_data }}"
     style="display: none;">
 </div>
+{% endblock %}
 
-<!-- Include libraries and data -->
+{% block scripts %}
+{{ super() }}
+<!-- Load Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/patternomaly@1.3.2/dist/patternomaly.min.js"></script>
-<script src="{{ url_for('static', filename='js/chart_data_init.js') }}"></script>
-<script src="{{ url_for('static', filename='js/analytics_charts.js') }}"></script>
-<script src="{{ url_for('static', filename='js/debug_controls.js') }}"></script>
+<!-- Load our consolidated script with forced cache busting -->
+<script src="{{ url_for('static', filename='js/analytics_dashboard.js') }}?v={{ now }}"></script>
 {% endblock %}

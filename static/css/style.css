@@ -17,6 +17,7 @@ body {
     font-weight: bold;
 }
 
+/* House card styling */
 .house-card {
     padding: 20px;
     margin: 0;
@@ -50,34 +51,6 @@ body {
     z-index: 1;
 }
 
-/* House-specific dragon colors */
-.Black { background-color: var(--black-house); color: white; }
-.Black::after { filter: invert(0.9); }
-
-.Blue { background-color: var(--blue-house); color: white; }
-.Blue::after { filter: hue-rotate(210deg); }
-
-.Green { background-color: var(--green-house); color: white; }
-.Green::after { filter: hue-rotate(120deg); }
-
-.White {
-    background-color: var(--white-house);
-    color: #000000; /* Changed to black for maximum contrast */
-    border: 2px solid #e6e6e6; /* Lighter gray border */
-    box-shadow: 0 2px 3px rgba(0,0,0,0.15); /* Enhanced shadow for depth */
-}
-.White::after { filter: brightness(0.6); }
-
-.Gold { background-color: var(--gold-house); color: black; }
-.Gold::after { filter: hue-rotate(45deg) saturate(1.5); }
-
-.Purple { background-color: var(--purple-house); color: white; }
-.Purple::after { filter: hue-rotate(270deg); }
-
-.Admin {
-    background-color: #6c757d;
-}
-
 /* Ensure content appears above the dragon image */
 .house-card h3,
 .house-card h4,
@@ -101,9 +74,16 @@ body {
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
+.stats-card canvas {
+    display: block !important;
+    max-width: 100%;
+    max-height: 350px;
+    margin: 0 auto;
+}
+
 /* House Rankings Card */
 .house-rankings-card {
-    height: calc(100% - 40px); /* Adjust for the margin-bottom of stats-card */
+    height: calc(100% - 40px);
     display: flex;
     flex-direction: column;
 }
@@ -112,32 +92,51 @@ body {
     flex-grow: 1;
     display: flex;
     flex-wrap: wrap;
-    margin: 0 -10px; /* Counteract the padding in house-col */
-    height: calc(100% - 40px); /* Adjust for the h3 heading */
+    margin: 0 -10px;
+    height: calc(100% - 40px);
 }
 
 .house-col {
     padding: 10px;
-    height: 33.333%; /* For 6 houses in 2 columns (3 rows) */
+    height: 33.333%;
     margin-bottom: 0;
 }
 
 /* Empty log items for consistent height */
 .empty-log-item {
-    height: 58px; /* Approximate height of a log item */
+    height: 58px;
     visibility: hidden;
 }
 
-/* Analytics Dashboard Styles */
+/* Analytics Dashboard & Chart Styles */
 .chart-container {
+    position: relative;
+    width: 100%;
+    margin-bottom: 30px;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    height: auto;
     min-height: 400px;
-    margin-bottom: 20px;
+}
+
+#barChartsSection .chart-container,
+#pieChartsSection .chart-container {
+    overflow: visible;
+}
+
+canvas {
+    display: block !important;
+    max-height: 350px !important;
+    width: auto !important;
+    height: auto !important;
 }
 
 .btn-group .btn {
     margin-right: 5px;
 }
 
+/* House badge styling */
 .house-badge {
     padding: 5px 10px;
     border-radius: 15px;
@@ -148,14 +147,55 @@ body {
     text-align: center;
 }
 
-/* House-specific styles for house badges */
-.house-badge.White {
+.house-badge.White, .White {
     background-color: var(--white-house);
-    color: #000000; /* Changed to black for maximum contrast */
-    border: 2px solid #e6e6e6; /* Lighter gray border */
-    box-shadow: 0 2px 3px rgba(0,0,0,0.15); /* Enhanced shadow for depth */
+    color: #000000;
+    border: 2px solid #e6e6e6;
+    box-shadow: 0 2px 3px rgba(0,0,0,0.15);
 }
 
+.White::after { filter: brightness(0.6); }
+
+.house-badge.Black, .Black {
+    background-color: var(--black-house);
+    color: white;
+}
+
+.Black::after { filter: invert(0.9); }
+
+.house-badge.Blue, .Blue {
+    background-color: var(--blue-house);
+    color: white;
+}
+
+.Blue::after { filter: hue-rotate(210deg); }
+
+.house-badge.Green, .Green {
+    background-color: var(--green-house);
+    color: white;
+}
+
+.Green::after { filter: hue-rotate(120deg); }
+
+.house-badge.Gold, .Gold {
+    background-color: var(--gold-house); 
+    color: black;
+}
+
+.Gold::after { filter: hue-rotate(45deg) saturate(1.5); }
+
+.house-badge.Purple, .Purple {
+    background-color: var(--purple-house);
+    color: white;
+}
+
+.Purple::after { filter: hue-rotate(270deg); }
+
+.Admin {
+    background-color: #6c757d;
+}
+
+/* Navigation and tab styling */
 .nav-tabs .nav-link {
     color: #495057;
     background-color: #f8f9fa;
@@ -174,6 +214,21 @@ body {
     border-top: none;
     padding: 20px;
     background-color: #fff;
+}
+
+/* Debug information styling */
+#debugInfo {
+    margin-bottom: 20px;
+}
+
+#debugData {
+    max-height: 200px;
+    overflow: auto;
+    font-family: monospace;
+    font-size: 12px;
+    background-color: #f8f9fa;
+    padding: 10px;
+    border-radius: 4px;
 }
 
 /* Peak Hours Styles */
@@ -198,58 +253,6 @@ body {
     display: inline;
 }
 
-@keyframes pulse {
-    0% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.05);
-    }
-    100% {
-        transform: scale(1);
-    }
-}
-
-@keyframes fadeInOut {
-    0% {
-        opacity: 0.8;
-    }
-    50% {
-        opacity: 1;
-    }
-    100% {
-        opacity: 0.8;
-    }
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .points-display {
-        font-size: 2rem;
-    }
-    
-    .chart-container {
-        min-height: 300px;
-    }
-    
-    .house-rankings-card {
-        height: auto;
-    }
-    
-    .house-grid {
-        height: auto;
-    }
-    
-    .house-col {
-        height: auto;
-        margin-bottom: 20px;
-    }
-}
-/* Active nav link styling */
-.navbar-dark .navbar-nav .nav-link.active {
-    color: #ffffff;
-    font-weight: bold;
-}
 /* Loading spinner */
 .loading-spinner {
     display: none;
@@ -277,4 +280,64 @@ body {
     background-color: #f8f9fa;
     min-width: 150px;
     flex: 1;
+}
+
+/* Animation keyframes */
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+@keyframes fadeInOut {
+    0% { opacity: 0.8; }
+    50% { opacity: 1; }
+    100% { opacity: 0.8; }
+}
+
+/* Active nav link styling */
+.navbar-dark .navbar-nav .nav-link.active {
+    color: #ffffff;
+    font-weight: bold;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .points-display {
+        font-size: 2rem;
+    }
+    
+    .chart-container {
+        min-height: 300px;
+    }
+    
+    canvas {
+        max-height: 250px !important;
+    }
+    
+    .house-rankings-card {
+        height: auto;
+    }
+    
+    .house-grid {
+        height: auto;
+    }
+    
+    .house-col {
+        height: auto;
+        margin-bottom: 20px;
+    }
+    
+    .d-flex.flex-wrap {
+        justify-content: center;
+    }
+    
+    .stat-box-horizontal {
+        min-width: 130px;
+        margin: 5px;
+    }
+    
+    .stat-box-horizontal h4 {
+        font-size: 1.1rem;
+    }
 }
