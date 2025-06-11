@@ -6,6 +6,12 @@ forced browsing and cross-site scripting vulnerabilities.
 # Add these imports at the top of app.py
 from utils.access_control import user_data_access_required, verify_content_type, log_access_attempt
 from utils.xss_protection import sanitize_input, sanitize_rich_text, sanitize_filename, add_xss_protection_headers
+from flask import current_app, request, flash, redirect, url_for, jsonify, abort
+from flask_login import login_required, current_user
+import os
+import re
+from datetime import datetime, timezone
+from werkzeug.utils import secure_filename
 
 # Replace the existing add_security_headers function with this enhanced version
 @app.after_request
@@ -51,7 +57,7 @@ def user_stats(user_id):
 # Update the upload_screenshot function to use sanitize_filename
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
-@limiter.limit("10 per minute")
+@limiter.limit("1000 per minute")  # Changed from 10 to 1000 per minute
 @verify_content_type('multipart/form-data')
 def upload_screenshot():
     try:

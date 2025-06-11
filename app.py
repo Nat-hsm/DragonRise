@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, abort
 from flask_login import UserMixin, login_user, login_required, logout_user, current_user
 from flask_wtf import FlaskForm
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -8,19 +8,19 @@ from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 import os
 import logging
+import bleach
+import secrets
 from werkzeug.utils import secure_filename
 import re
-import bleach  # Added for HTML sanitization
-from utils.security import init_security, PasswordManager, require_api_key, admin_required
+from utils.security import init_security, PasswordManager, require_api_key, admin_required, sanitize_input, sanitize_filename, user_data_access_required, verify_content_type, log_access_attempt
 from utils.logging_config import LogConfig, log_activity
 from utils.database import setup_database
 from utils.image_analyzer import ImageAnalyzer
 from utils.time_utils import is_peak_hour, get_points_multiplier, get_peak_hours_message, get_current_peak_hour_info
 from config import get_config, validate_config
-from extensions import db, login_manager, migrate
-from utils.security_enhancements import sanitize_input, is_safe_url, verify_user_access, user_access_required
-from utils.access_control import user_data_access_required, verify_content_type, log_access_attempt
-from utils.xss_protection import sanitize_html, sanitize_rich_text, sanitize_filename, add_xss_protection_headers
+from extensions import db, login_manager, migrate, cognito_auth
+from authlib.integrations.flask_client import OAuth
+from urllib.parse import urlencode
 
 # Load environment variables
 load_dotenv()
@@ -67,6 +67,20 @@ except Exception as e:
 
 # Import models AFTER extensions are initialized
 from models import User, House, ClimbLog, StandingLog, StepLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
+
+# Initialize cognito auth in app.py (add to your initialization section)
+cognito_auth.init_app(app)
+
+# Initialize OAuth
+oauth = OAuth(app)
+oauth.register(
+    name='oidc',
+    authority=f'https://cognito-idp.{app.config["AWS_REGION"]}.amazonaws.com/{app.config["COGNITO_USER_POOL_ID"]}',
+    client_id=app.config['COGNITO_CLIENT_ID'],
+    client_secret=app.config['COGNITO_CLIENT_SECRET'],
+    server_metadata_url=f'https://cognito-idp.{app.config["AWS_REGION"]}.amazonaws.com/{app.config["COGNITO_USER_POOL_ID"]}/.well-known/openid-configuration',
+    client_kwargs={'scope': 'email openid profile'}
+)
 
 # Add security headers to all responses
 @app.after_request
@@ -138,7 +152,7 @@ def index():
     return render_template('index.html', houses=houses)
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("200 per minute")  # Changed from 5 to 200 per minute
 def register():
     if request.method == 'POST':
         try:
@@ -187,50 +201,185 @@ def register():
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("200 per minute")
 def login():
     if request.method == 'POST':
+        # Keep your existing POST handling for traditional login
         try:
             username = sanitize_input(request.form['username']).strip()
             password = request.form['password']
 
-            # Use case-insensitive username matching
-            user = User.query.filter(User.username.ilike(username)).first()
-            if user and user.check_password(password):
-                login_user(user)
-                # Update last login time
-                user.last_login = datetime.now(timezone.utc)
-                db.session.commit()
-                
-                log_activity(app, user.id, 'Login', 'Success')
-                flash('Welcome back, Dragon Climber!', 'success')
-                next_page = request.args.get('next')
-                
-                # Validate the next parameter to prevent open redirect
-                if next_page and not is_safe_url(next_page):
-                    next_page = None
-                
-                # Redirect admin users to admin dashboard
-                if user.is_admin:
-                    return redirect(next_page or url_for('admin_dashboard'))
-                else:
-                    return redirect(next_page or url_for('dashboard'))
-
-            log_activity(app, None, 'Login Failed', 'Invalid Credentials')
-            flash('Invalid username or password', 'danger')
-
+            # Your existing code...
         except Exception as e:
             app.logger.error(f'Login error: {str(e)}')
             flash('An error occurred during login', 'danger')
+            return redirect(url_for('login'))
+    
+    # For GET requests, use OAuth
+    redirect_uri = url_for('auth_callback', _external=True)
+    return oauth.oidc.authorize_redirect(redirect_uri)
 
-    return render_template('login.html')
+@app.route('/signup')
+@limiter.limit("200 per minute")
+def signup():
+    """Direct users to Cognito signup flow"""
+    redirect_uri = url_for('auth_callback', _external=True)
+    # Explicitly set state to 'signup' to indicate this is a registration flow
+    return oauth.oidc.authorize_redirect(redirect_uri, state="signup")
+
+@app.route('/auth/callback')
+def auth_callback():
+    try:
+        # Get authorization code
+        code = request.args.get('code')
+        state = request.args.get('state', 'login')
+        
+        if not code:
+            flash('Authentication failed: No authorization code received', 'danger')
+            return redirect(url_for('index'))
+        
+        app.logger.info(f"Code received: {code[:10]}... State: {state}")
+        
+        # Exchange code for token
+        token_response = cognito_auth.get_token(code)
+        
+        if not token_response:
+            flash('Failed to authenticate: Could not exchange token', 'danger')
+            return redirect(url_for('index'))
+        
+        app.logger.info(f"Token exchange successful")
+        
+        # Continue with the rest of your authentication logic...
+        
+        # Get ID token and access token
+        id_token = token_response.get('id_token')
+        access_token = token_response.get('access_token')
+        
+        # Validate token
+        claims = cognito_auth.validate_token(id_token)
+        if not claims:
+            flash('Invalid token', 'danger')
+            return redirect(url_for('index'))
+        
+        # Get user info
+        cognito_username = claims.get('cognito:username')
+        email = claims.get('email')
+        
+        # Get user attributes
+        user_attrs = cognito_auth.get_user_attributes(access_token)
+        
+        # Check if user already exists in our database
+        user = User.query.filter(User.username.ilike(cognito_username)).first()
+        
+        if not user:
+            # New user - handle signup flow
+            if state == 'signup':
+                # Redirect to house selection page with token in session
+                session['temp_cognito_data'] = {
+                    'username': cognito_username,
+                    'email': email,
+                    'id_token': id_token,
+                    'access_token': access_token
+                }
+                return redirect(url_for('complete_registration'))
+            else:
+                # User doesn't exist but tried to login
+                flash('Please register first', 'warning')
+                return redirect(url_for('signup'))
+        else:
+            # Existing user - log them in
+            login_user(user)
+            user.last_login = datetime.now(timezone.utc)
+            db.session.commit()
+            
+            log_activity(app, user.id, 'Cognito Login', 'Success')
+            flash('Welcome back, Dragon Climber!', 'success')
+            
+            # Store tokens in session
+            session['cognito_id_token'] = id_token
+            session['cognito_access_token'] = access_token
+            
+            return redirect(url_for('dashboard'))
+            
+    except Exception as e:
+        app.logger.error(f'Auth callback error: {str(e)}')
+        flash(f'Authentication error: {str(e)}', 'danger')  # Show the actual error
+        return redirect(url_for('index'))
+
+# Add route to complete registration (house selection)
+@app.route('/complete-registration', methods=['GET', 'POST'])
+def complete_registration():
+    # Check if we have temporary Cognito data
+    if 'temp_cognito_data' not in session:
+        flash('Registration session expired', 'danger')
+        return redirect(url_for('signup'))
+    
+    cognito_data = session['temp_cognito_data']
+    
+    if request.method == 'POST':
+        try:
+            house = sanitize_input(request.form['house'])
+            
+            # Create new user with data from Cognito
+            user = User(
+                username=cognito_data['username'],
+                house=house, 
+                email=cognito_data['email']
+            )
+            
+            # Generate a random password for the user (they'll use Cognito to authenticate)
+            import secrets
+            random_password = secrets.token_urlsafe(12)
+            user.set_password(random_password)
+            
+            house_obj = House.query.filter_by(name=house).first()
+            if house_obj:
+                house_obj.member_count += 1
+                db.session.add(user)
+                db.session.commit()
+                
+                # Log the user in
+                login_user(user)
+                
+                # Store tokens in session
+                session['cognito_id_token'] = cognito_data['id_token']
+                session['cognito_access_token'] = cognito_data['access_token']
+                
+                # Clear temporary data
+                session.pop('temp_cognito_data', None)
+                
+                log_activity(app, user.id, 'Registration', 'Success via Cognito')
+                flash('Registration successful!', 'success')
+                return redirect(url_for('dashboard'))
+            else:
+                flash('Invalid house selection', 'danger')
+        
+        except Exception as e:
+            app.logger.error(f'Registration completion error: {str(e)}')
+            flash('An error occurred during registration', 'danger')
+    
+    return render_template('complete_registration.html')
 
 @app.route('/logout')
 @login_required
 def logout():
+    # Clear session data
+    session.pop('user', None)
+    session.pop('cognito_id_token', None)
+    session.pop('cognito_access_token', None)
+    
+    # Standard Flask-Login logout
     logout_user()
     flash('You have been logged out.', 'info')
-    return redirect(url_for('index'))
+    
+    try:
+        # Return to Cognito logout if OAuth is available
+        return redirect(oauth.oidc.api_base_url + 
+                      '/logout?client_id=' + app.config['COGNITO_CLIENT_ID'] +
+                      '&logout_uri=' + url_for('index', _external=True))
+    except:
+        # Fallback to regular logout if OAuth fails
+        return redirect(url_for('index'))
 
 @app.route('/dashboard')
 @login_required
@@ -649,7 +798,7 @@ def log_steps():
 
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
-@limiter.limit("10 per minute")  # Added rate limiting
+@limiter.limit("1000 per minute")  # Changed from 10 to 1000 per minute
 @verify_content_type('multipart/form-data')
 def upload_screenshot():
     try:
@@ -750,6 +899,7 @@ def upload_screenshot():
 
 @app.route('/upload-standing-screenshot', methods=['POST'])
 @login_required
+@limiter.limit("1000 per minute")  # Added rate limiting
 def upload_standing_screenshot():
     try:
         # Check if a file was uploaded
@@ -820,6 +970,7 @@ def upload_standing_screenshot():
 
 @app.route('/upload-steps-screenshot', methods=['POST'])
 @login_required
+@limiter.limit("1000 per minute")  # Added rate limiting
 def upload_steps_screenshot():
     try:
         # Check if a file was uploaded
@@ -1021,6 +1172,147 @@ if __name__ == '__main__':
         else:
             print("Admin user already exists")
     
-    # Use debug mode from environment variable
+    # Use debug mode from environment variable and set port to 5000
     debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
-    app.run(debug=debug_mode)
+    app.run(debug=debug_mode, port=5001)
+
+@app.route('/debug-cognito')
+def debug_cognito():
+    """Debug Cognito configuration"""
+    return f"""
+    <h1>Cognito Debug</h1>
+    <p><strong>Domain:</strong> {app.config.get('COGNITO_DOMAIN')}</p>
+    <p><strong>User Pool ID:</strong> {app.config.get('COGNITO_USER_POOL_ID')}</p>
+    <p><strong>Redirect URI:</strong> {app.config.get('COGNITO_REDIRECT_URI')}</p>
+    <p><strong>Login URL:</strong> {cognito_auth.get_login_url()}</p>
+    <p><a href="{cognito_auth.get_login_url()}">Test Login</a></p>
+    """
+
+@app.route('/debug-redirect')
+def debug_redirect():
+    """Debug redirect settings"""
+    from flask import request
+    
+    current_url = request.url
+    base_url = request.url_root.rstrip('/')
+    configured_redirect = app.config.get('COGNITO_REDIRECT_URI')
+    generated_redirect = url_for('auth_callback', _external=True)
+    
+    return f"""
+    <h1>Redirect Debug</h1>
+    <p><strong>Current URL:</strong> {current_url}</p>
+    <p><strong>Base URL:</strong> {base_url}</p>
+    <p><strong>Configured Redirect:</strong> {configured_redirect}</p>
+    <p><strong>Generated Redirect:</strong> {generated_redirect}</p>
+    <hr>
+    <p>If these don't match, update your COGNITO_REDIRECT_URI in .env to: {generated_redirect}</p>
+    <p>Make sure to update the allowed callback URLs in AWS Cognito console too.</p>
+    """
+
+@app.route('/debug-token')
+def debug_token():
+    """Debug token exchange process"""
+    mock_code = "test_code"  # This won't actually work, just for debugging
+    
+    # Get the Cognito configuration
+    domain = app.config.get('COGNITO_DOMAIN')
+    client_id = app.config.get('COGNITO_CLIENT_ID')
+    client_secret = app.config.get('COGNITO_CLIENT_SECRET')
+    redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
+    
+    return f"""
+    <h1>Token Exchange Debug</h1>
+    <p><strong>Domain:</strong> {domain}</p>
+    <p><strong>Client ID:</strong> {client_id}</p>
+    <p><strong>Client Secret:</strong> {'*' * 8}</p>
+    <p><strong>Redirect URI:</strong> {redirect_uri}</p>
+    <p><strong>Token URL:</strong> https://{domain}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com/oauth2/token</p>
+    """
+
+@app.route('/auth-debug')
+def auth_debug():
+    code = request.args.get('code', 'No code')
+    state = request.args.get('state', 'No state')
+    error = request.args.get('error', 'No error')
+    error_description = request.args.get('error_description', 'No description')
+    
+    token_debug = "No code to exchange"
+    raw_response = "None"
+    
+    if code != 'No code':
+        # Try to exchange the code for a token
+        try:
+            import requests
+            
+            token_url = f"https://{app.config.get('COGNITO_DOMAIN')}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com/oauth2/token"
+            
+            # Client credentials in the form data instead of Basic Auth
+            body = {
+                'grant_type': 'authorization_code',
+                'client_id': app.config.get('COGNITO_CLIENT_ID'),
+                'client_secret': app.config.get('COGNITO_CLIENT_SECRET'),
+                'code': code,
+                'redirect_uri': app.config.get('COGNITO_REDIRECT_URI')
+            }
+            
+            headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+            response = requests.post(token_url, data=body, headers=headers)
+            raw_response = response.text
+            token_debug = f"Status: {response.status_code}, Content: {raw_response[:100]}..."
+        except Exception as e:
+            token_debug = f"Error: {str(e)}"
+    
+    # Rest of the function remains the same
+    return f"""
+    <h1>Auth Debug (Improved)</h1>
+    <p><strong>Code:</strong> {code[:10]}...</p>
+    <p><strong>State:</strong> {state}</p>
+    <p><strong>Error:</strong> {error}</p>
+    <p><strong>Error Description:</strong> {error_description}</p>
+    <p><strong>Token Exchange:</strong> {token_debug}</p>
+    <p><strong>Raw Response:</strong> <pre>{raw_response}</pre></p>
+    <p><a href="/login">Try Login Again</a></p>
+    """
+
+@app.route('/cognito-test')
+def cognito_test():
+    """Test endpoint for Cognito token exchange"""
+    try:
+        # Generate a login URL for testing
+        login_url = cognito_auth.get_login_url("test-auth-flow")
+        
+        # Get and display current configuration
+        config = {
+            'domain': app.config.get('COGNITO_DOMAIN'),
+            'client_id': app.config.get('COGNITO_CLIENT_ID'),
+            'redirect_uri': app.config.get('COGNITO_REDIRECT_URI'),
+            'region': app.config.get('AWS_REGION'),
+        }
+        
+        # Check if redirect URI matches current host
+        current_host = request.host_url.rstrip('/')
+        expected_callback = f"{current_host}/auth/callback"
+        redirect_match = app.config.get('COGNITO_REDIRECT_URI') == expected_callback
+        
+        return f"""
+        <h1>Cognito Authentication Test</h1>
+        <h2>Configuration</h2>
+        <ul>
+            <li><strong>Domain:</strong> {config['domain']}</li>
+            <li><strong>Client ID:</strong> {config['client_id']}</li>
+            <li><strong>Redirect URI:</strong> {config['redirect_uri']}</li>
+            <li><strong>Current Host:</strong> {current_host}</li>
+            <li><strong>Expected Callback:</strong> {expected_callback}</li>
+            <li><strong>Redirect Match:</strong> {'✅ Matches' if redirect_match else '❌ Mismatch! Update your .env file and AWS Console'}</li>
+        </ul>
+        <h2>Test Authentication</h2>
+        <p><a href="{login_url}" class="btn btn-primary">Test Cognito Login</a></p>
+        <h2>Troubleshooting</h2>
+        <ol>
+            <li>Make sure the allowed callback URL in AWS Console includes: {expected_callback}</li>
+            <li>Verify the app client settings match what's in your .env file</li>
+            <li>In AWS Console, check if the token endpoint auth is set to 'CLIENT_SECRET_POST'</li>
+        </ol>
+        """
+    except Exception as e:
+        return f"<h1>Error</h1><p>{str(e)}</p>"
