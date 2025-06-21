@@ -71,7 +71,7 @@ def index():
     return render_template('index.html', houses=houses)
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("200 per minute")  # Changed from 5 per minute
+@limiter.limit("200 per minute")  # Changed from 5 to 200 per minute
 def register():
     if request.method == 'POST':
         try:
@@ -708,6 +708,7 @@ def log_steps():
     return redirect(url_for('steps_dashboard'))
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
+@limiter.limit("1000 per minute")  # Changed from 10 to 1000 per minute (or added if missing)
 def upload_screenshot():
     try:
         # Check if a file was uploaded

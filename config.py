@@ -35,28 +35,27 @@ class Config:
     WTF_CSRF_TIME_LIMIT = 3600  # 1 hour
     
     # Rate Limiting
-    RATELIMIT_DEFAULT = ["200 per day", "50 per hour"]  # List of strings
+    RATELIMIT_DEFAULT = ["20000 per day", "5000 per hour"]  # List of strings
     RATELIMIT_STORAGE_URL = os.getenv('RATELIMIT_STORAGE_URL', 'memory://')
     RATELIMIT_STRATEGY = 'fixed-window'
     
+    API_KEY = os.getenv('API_KEY')
+
     # AWS Configuration
     AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
-    AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+    AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
     
-    # Application Configuration
-    HOUSES = ['Black', 'Blue', 'Green', 'White', 'Gold', 'Purple']
-    POINTS_PER_FLIGHT = 10
-    MAX_FLIGHTS_PER_LOG = 100
+    # AWS Cognito settings
+    COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID')
+    COGNITO_CLIENT_ID = os.environ.get('COGNITO_CLIENT_ID')
+    COGNITO_CLIENT_SECRET = os.environ.get('COGNITO_CLIENT_SECRET')
+    COGNITO_DOMAIN = os.environ.get('COGNITO_DOMAIN')
+    COGNITO_REDIRECT_URI = os.environ.get('COGNITO_REDIRECT_URI', 'http://localhost:5000/auth/callback')
     
-    # Cache Configuration
-    CACHE_TYPE = 'simple'
-    CACHE_DEFAULT_TIMEOUT = 300
-    
-    # API Configuration
-    API_KEY = os.getenv('API_KEY')
-    API_RATE_LIMIT = "100 per day"
-
+    @staticmethod
+    def init_app(app):
+        pass
 
 class ProductionConfig(Config):
     """Production configuration"""
