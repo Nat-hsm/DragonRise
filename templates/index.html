@@ -30,9 +30,8 @@
 
     {% if not current_user.is_authenticated %}
     <div class="mt-5">
-        <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg mx-2">Join Now</a>
         <a href="{{ url_for('login') }}" class="btn btn-outline-primary btn-lg mx-2">Login</a>
-        <a href="{{ url_for('signup') }}" class="btn btn-outline-secondary btn-lg mx-2">Sign up with AWS</a>
+        <a href="{{ url_for('signup') }}" class="btn btn-primary btn-lg mx-2">Register</a>
     </div>
     {% endif %}
 </div>
