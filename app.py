@@ -244,8 +244,6 @@ def auth_callback():
         
         app.logger.info(f"Token exchange successful! User authenticated.")
         
-        # Rest of your authentication logic here...
-        
         # Get ID token and access token
         id_token = token_response.get('id_token')
         access_token = token_response.get('access_token')
@@ -260,29 +258,62 @@ def auth_callback():
         cognito_username = claims.get('cognito:username')
         email = claims.get('email')
         
-        # Get user attributes
-        user_attrs = cognito_auth.get_user_attributes(access_token)
+        # Check if this is the admin user from Cognito (case-insensitive)
+        is_admin_login = cognito_username.lower() == 'admin'
         
         # Check if user already exists in our database
         user = User.query.filter(User.username.ilike(cognito_username)).first()
         
         if not user:
             # New user - handle signup flow
-            if state == 'signup':
-                # Redirect to house selection page with token in session
-                session['temp_cognito_data'] = {
-                    'username': cognito_username,
-                    'email': email,
-                    'id_token': id_token,
-                    'access_token': access_token
-                }
-                return redirect(url_for('complete_registration'))
+            if state == 'signup' or is_admin_login:
+                if is_admin_login:
+                    # Create admin user automatically
+                    user = User(
+                        username='Admin',
+                        email=email,
+                        house='Admin',
+                        is_admin=True
+                    )
+                    # Generate a secure password (they'll authenticate via Cognito)
+                    import secrets
+                    random_password = secrets.token_urlsafe(16)
+                    user.set_password(random_password)
+                    
+                    db.session.add(user)
+                    db.session.commit()
+                    
+                    # Log the admin user in
+                    login_user(user)
+                    
+                    # Store tokens in session
+                    session['cognito_id_token'] = id_token
+                    session['cognito_access_token'] = access_token
+                    
+                    log_activity(app, user.id, 'Admin Registration', 'Success via Cognito')
+                    flash('Admin account created successfully!', 'success')
+                    return redirect(url_for('admin_dashboard'))
+                else:
+                    # Regular user signup, continue with house selection
+                    session['temp_cognito_data'] = {
+                        'username': cognito_username,
+                        'email': email,
+                        'id_token': id_token,
+                        'access_token': access_token
+                    }
+                    return redirect(url_for('complete_registration'))
             else:
                 # User doesn't exist but tried to login
                 flash('Please register first', 'warning')
                 return redirect(url_for('signup'))
         else:
             # Existing user - log them in
+            
+            # Ensure admin status is correct for admin user
+            if is_admin_login and not user.is_admin:
+                user.is_admin = True
+                db.session.commit()
+            
             login_user(user)
             user.last_login = datetime.now(timezone.utc)
             db.session.commit()
@@ -294,11 +325,15 @@ def auth_callback():
             session['cognito_id_token'] = id_token
             session['cognito_access_token'] = access_token
             
-            return redirect(url_for('dashboard'))
+            # Redirect admin users to admin dashboard
+            if user.is_admin:
+                return redirect(url_for('admin_dashboard'))
+            else:
+                return redirect(url_for('dashboard'))
             
     except Exception as e:
         app.logger.error(f'Auth callback error: {str(e)}')
-        flash(f'Authentication error: {str(e)}', 'danger')  # Show the actual error
+        flash('Authentication error', 'danger')
         return redirect(url_for('index'))
 
 # Add route to complete registration (house selection)
