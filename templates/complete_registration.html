@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="stats-card">
+            <h2>Complete Your Registration</h2>
+            <form method="post">
+                <div class="mb-3">
+                    <label for="house" class="form-label">Choose Your House</label>
+                    <select class="form-control" id="house" name="house" required>
+                        <option value="Black">Black House</option>
+                        <option value="Blue">Blue House</option>
+                        <option value="Green">Green House</option>
+                        <option value="White">White House</option>
+                        <option value="Gold">Gold House</option>
+                        <option value="Purple">Purple House</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Complete Registration</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
