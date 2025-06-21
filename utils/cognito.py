@@ -38,7 +38,7 @@ class CognitoAuth:
             params['state'] = state
 
         query_string = '&'.join([f"{k}={quote(v)}" for k, v in params.items()])
-        # Use the domain from config instead of hardcoding
+        # The domain format is correct - don't change it
         return f"https://{self.domain}.auth.{self.region}.amazoncognito.com/login?{query_string}"
     
     def get_token(self, code):
@@ -50,7 +50,7 @@ class CognitoAuth:
             'Content-Type': 'application/x-www-form-urlencoded'
         }
         
-        # Include client credentials in the request body (CLIENT_SECRET_POST method)
+        # Include client credentials in the body (CLIENT_SECRET_POST method)
         body = {
             'grant_type': 'authorization_code',
             'client_id': self.client_id,
@@ -61,19 +61,43 @@ class CognitoAuth:
         
         try:
             import logging
-            logging.info(f"Token exchange request to {token_url} with client credentials in body")
+            from urllib.parse import urlencode
             
-            # Don't use auth parameter - include credentials in body instead
-            response = requests.post(token_url, headers=headers, data=body)
-            response_json = response.json()
+            # Log redacted request details
+            debug_body = body.copy()
+            debug_body['client_secret'] = '[REDACTED]'
+            debug_body['code'] = f"{code[:8]}..." if code else "None"
+            logging.info(f"Token exchange request to {token_url}")
+            logging.info(f"Request params: {debug_body}")
+            
+            # Make the request with proper URL encoding
+            response = requests.post(token_url, headers=headers, data=urlencode(body))
             
             logging.info(f"Token exchange response status: {response.status_code}")
             
-            if 'error' in response_json:
-                logging.error(f"Token exchange error: {response_json}")
+            try:
+                response_json = response.json()
+                
+                if 'error' in response_json:
+                    error_msg = response_json.get('error')
+                    error_desc = response_json.get('error_description', '')
+                    
+                    # Log specific error information
+                    if error_msg == 'invalid_grant':
+                        logging.error(f"Invalid grant: The authorization code is invalid/expired or has already been used. Details: {error_desc}")
+                    else:
+                        logging.error(f"Token exchange error: {response_json}")
+                        
+                    return None
+                
+                # Log successful token exchange
+                logging.info("Token exchange successful")
+                return response_json
+                
+            except ValueError:  # Not JSON
+                logging.error(f"Non-JSON response: {response.text}")
                 return None
-            
-            return response_json
+                
         except Exception as e:
             logging.error(f"Token exchange exception: {str(e)}")
             return None

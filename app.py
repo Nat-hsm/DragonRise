@@ -204,19 +204,12 @@ def register():
 @limiter.limit("200 per minute")
 def login():
     if request.method == 'POST':
-        # Keep your existing POST handling for traditional login
-        try:
-            username = sanitize_input(request.form['username']).strip()
-            password = request.form['password']
-
-            # Your existing code...
-        except Exception as e:
-            app.logger.error(f'Login error: {str(e)}')
-            flash('An error occurred during login', 'danger')
-            return redirect(url_for('login'))
+        # Keep your existing POST handling code
+        pass
     
-    # For GET requests, use OAuth
-    redirect_uri = url_for('auth_callback', _external=True)
+    # For GET requests, use OAuth with explicit redirect URI
+    # Instead of dynamically generating it
+    redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
     return oauth.oidc.authorize_redirect(redirect_uri)
 
 @app.route('/signup')
@@ -235,21 +228,23 @@ def auth_callback():
         state = request.args.get('state', 'login')
         
         if not code:
+            app.logger.error("No authorization code received in callback")
             flash('Authentication failed: No authorization code received', 'danger')
             return redirect(url_for('index'))
         
-        app.logger.info(f"Code received: {code[:10]}... State: {state}")
+        app.logger.info(f"Code received (first 8 chars): {code[:8]}... State: {state}")
         
         # Exchange code for token
         token_response = cognito_auth.get_token(code)
         
         if not token_response:
+            app.logger.error("Token exchange failed - no response received")
             flash('Failed to authenticate: Could not exchange token', 'danger')
             return redirect(url_for('index'))
         
-        app.logger.info(f"Token exchange successful")
+        app.logger.info(f"Token exchange successful! User authenticated.")
         
-        # Continue with the rest of your authentication logic...
+        # Rest of your authentication logic here...
         
         # Get ID token and access token
         id_token = token_response.get('id_token')
@@ -1316,3 +1311,143 @@ def cognito_test():
         """
     except Exception as e:
         return f"<h1>Error</h1><p>{str(e)}</p>"
+
+@app.route('/token-debug')
+def token_debug():
+    """Detailed token debugging"""
+    code = request.args.get('code', '')
+    
+    if not code:
+        return """
+        <h1>Token Exchange Debugger</h1>
+        <p>Add a 'code' parameter to test token exchange manually</p>
+        <p>Example: <code>/token-debug?code=your_code_here</code></p>
+        """
+    
+    # Try both auth methods
+    import requests
+    from urllib.parse import urlencode
+    from requests.auth import HTTPBasicAuth
+    
+    token_url = f"https://{app.config.get('COGNITO_DOMAIN')}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com/oauth2/token"
+    client_id = app.config.get('COGNITO_CLIENT_ID')
+    client_secret = app.config.get('COGNITO_CLIENT_SECRET')
+    redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
+    
+    # Method 1: CLIENT_SECRET_POST
+    headers1 = {'Content-Type': 'application/x-www-form-urlencoded'}
+    body1 = {
+        'grant_type': 'authorization_code',
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'code': code,
+        'redirect_uri': redirect_uri
+    }
+    
+    # Method 2: CLIENT_SECRET_BASIC
+    headers2 = {'Content-Type': 'application/x-www-form-urlencoded'}
+    body2 = {
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': redirect_uri
+    }
+    auth2 = HTTPBasicAuth(client_id, client_secret)
+    
+    try:
+        response1 = requests.post(token_url, headers=headers1, data=urlencode(body1))
+        response2 = requests.post(token_url, headers=headers2, data=urlencode(body2), auth=auth2)
+        
+        return f"""
+        <h1>Token Exchange Debugging</h1>
+        <h2>CLIENT_SECRET_POST Method</h2>
+        <p>Status: {response1.status_code}</p>
+        <pre>{response1.text}</pre>
+        
+        <h2>CLIENT_SECRET_BASIC Method</h2>
+        <p>Status: {response2.status_code}</p>
+        <pre>{response2.text}</pre>
+        """
+    except Exception as e:
+        return f"<h1>Error</h1><p>{str(e)}</p>"
+
+@app.route('/test-auth-flow')
+def test_auth_flow():
+    """Test the complete authentication flow"""
+    # Generate a random state value for CSRF protection
+    import secrets
+    state = secrets.token_hex(16)
+    
+    # Store the state in the session
+    session['oauth_state'] = state
+    
+    # Generate login URL with the state parameter
+    login_url = cognito_auth.get_login_url(state)
+    
+    # Display information about the flow
+    return f"""
+    <h1>AWS Cognito Authentication Flow Test</h1>
+    <p>This will test the complete authentication flow with a fresh authorization code.</p>
+    <p><strong>Steps:</strong></p>
+    <ol>
+        <li>Click the "Start Authentication" button below</li>
+        <li>Log in or sign up with AWS Cognito</li>
+        <li>You'll be redirected back to the callback URL</li>
+        <li>The code will be automatically exchanged for tokens</li>
+    </ol>
+    <p><a href="{login_url}" class="btn btn-primary">Start Authentication</a></p>
+    """
+@app.route('/domain-debug')
+def domain_debug():
+    """Test different domain formats for Cognito"""
+    # Current domain from config
+    current_domain = app.config.get('COGNITO_DOMAIN')
+    
+    # Extract parts for testing different combinations
+    parts = current_domain.split('-')
+    if len(parts) > 2 and parts[0] == 'us' and parts[1] == 'east':
+        region_prefix = f"{parts[0]}-{parts[1]}-"
+        domain_suffix = parts[2]
+    else:
+        region_prefix = ""
+        domain_suffix = current_domain
+    
+    # Generate test URLs with different domain formats
+    test_urls = [
+        {
+            "name": "Current Configuration", 
+            "url": f"https://{current_domain}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com"
+        },
+        {
+            "name": "Without Region in Domain", 
+            "url": f"https://{domain_suffix}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com"
+        },
+        {
+            "name": "Domain-Only", 
+            "url": f"https://{domain_suffix}.auth.amazoncognito.com"
+        }
+    ]
+    
+    # Generate HTML for testing each URL
+    url_tests = ""
+    for test in test_urls:
+        url_tests += f"""
+        <div class="mb-3">
+            <h3>{test["name"]}</h3>
+            <p><code>{test["url"]}</code></p>
+            <a href="{test["url"]}" target="_blank" class="btn btn-sm btn-primary">Test URL</a>
+        </div>
+        """
+    
+    return f"""
+    <h1>Cognito Domain Debugging</h1>
+    <p>Testing different domain formats to find the correct one.</p>
+    <p><strong>Current domain from config:</strong> {current_domain}</p>
+    {url_tests}
+    <hr>
+    <h3>Instructions:</h3>
+    <ol>
+        <li>Check which URL works by clicking the "Test URL" buttons</li>
+        <li>Look for the URL that loads the AWS Cognito login page</li>
+        <li>Update your .env file with the correct domain prefix (the part before .auth...)</li>
+    </ol>
+    """
