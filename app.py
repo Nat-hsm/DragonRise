@@ -21,6 +21,22 @@ from extensions import db, login_manager, migrate
 from utils.security_enhancements import sanitize_input, is_safe_url, verify_user_access, user_access_required
 from utils.access_control import user_data_access_required, verify_content_type, log_access_attempt
 from utils.xss_protection import sanitize_html, sanitize_rich_text, sanitize_filename, add_xss_protection_headers
+from flask import jsonify
+from garminconnect import (
+    Garmin,
+    GarminConnectConnectionError,
+    GarminConnectTooManyRequestsError,
+    GarminConnectAuthenticationError,
+)
+import datetime
+import os
+import requests
+from flask import session, redirect, url_for, request, jsonify, flash
+
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI', 'http://localhost:5000/google_fit_callback')
+GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.activity.read"
 
 # Load environment variables
 load_dotenv()
@@ -228,9 +244,11 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    # Remove the Google Fit token from the session
+    session.pop('google_fit_token', None)  # Remove Google Fit token from session
     logout_user()
     flash('You have been logged out.', 'info')
-    return redirect(url_for('index'))
+    return redirect(url_for('login'))
 
 @app.route('/dashboard')
 @login_required
@@ -1009,6 +1027,309 @@ def allowed_file(filename):
     """Check if the file extension is allowed"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg'})
+
+@app.route('/get_garmin_data', methods=['POST'])
+@login_required
+def get_garmin_data():
+    garmin_email = os.getenv("GARMIN_EMAIL")
+    garmin_password = os.getenv("GARMIN_PASSWORD")
+    if not garmin_email or not garmin_password:
+        return jsonify({"error": "Garmin credentials not set"}), 400
+
+    try:
+        client = Garmin(garmin_email, garmin_password)
+        client.login()
+        today = datetime.date.today().isoformat()
+        daily_summary = client.get_stats(today)
+        steps = daily_summary.get("totalSteps")
+        floors = daily_summary.get("floorsAscended")
+        return jsonify({"steps": steps, "floors": floors})
+    except (
+        GarminConnectConnectionError,
+        GarminConnectAuthenticationError,
+        GarminConnectTooManyRequestsError,
+    ) as err:
+        return jsonify({"error": str(err)}), 500
+
+@app.route('/google_fit_auth')
+@login_required
+def google_fit_auth():
+    GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+    GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI', 'http://localhost:5000/google_fit_callback')
+    GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.activity.read"
+    if not GOOGLE_CLIENT_ID:
+        return "Google Fit Client ID not set", 500
+    auth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth"
+        "?response_type=code"
+        f"&client_id={GOOGLE_CLIENT_ID}"
+        f"&redirect_uri={GOOGLE_FIT_REDIRECT_URI}"
+        f"&scope={GOOGLE_FIT_SCOPE}"
+        "&access_type=offline"
+        "&prompt=consent"
+    )
+    return redirect(auth_url)
+
+@app.route('/google_fit_callback')
+@login_required
+def google_fit_callback():
+    code = request.args.get('code')
+    if not code:
+        flash("Google Fit authorization failed.", "danger")
+        return redirect(url_for('steps_dashboard'))  # <-- update here
+
+    # Exchange code for token
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
+        "grant_type": "authorization_code"
+    }
+    r = requests.post(token_url, data=data)
+    if r.status_code != 200:
+        flash("Failed to get Google Fit token.", "danger")
+        return redirect(url_for('dashboard'))
+    token_info = r.json()
+    access_token = token_info.get("access_token")
+    session['google_fit_token'] = access_token
+
+    # Redirect to steps dashboard after linking
+    return redirect(url_for('steps_dashboard'))  # <-- update here
+
+@app.route('/get_google_fit_steps')
+@login_required
+def get_google_fit_steps():
+    access_token = session.get('google_fit_token')
+    if not access_token:
+        return jsonify({"error": "Google Fit not linked"}), 400
+
+    # Get today's steps
+    import time
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    start_time_millis = int(start_of_day.timestamp() * 1000)
+    end_time_millis = int(end_of_day.timestamp() * 1000)
+
+    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "aggregateBy": [{
+            "dataTypeName": "com.google.step_count.delta",
+            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+        }],
+        "bucketByTime": { "durationMillis": 86400000 },
+        "startTimeMillis": start_time_millis,
+        "endTimeMillis": end_time_millis
+    }
+    r = requests.post(url, headers=headers, json=body)
+    if r.status_code != 200:
+        return jsonify({"error": "Failed to fetch Google Fit data"}), 400
+
+    data = r.json()
+    total_steps_today = 0
+    try:
+        buckets = data.get("bucket", [])
+        for bucket in buckets:
+            for dataset in bucket.get("dataset", []):
+                for point in dataset.get("point", []):
+                    for value in point.get("value", []):
+                        total_steps_today += value.get("intVal", 0)
+    except Exception:
+        pass
+
+    return jsonify({"steps": total_steps_today})
+
+@app.route('/get_google_fit_weekly_steps')
+@login_required
+def get_google_fit_weekly_steps():
+    access_token = session.get('google_fit_token')
+    if not access_token:
+        return jsonify({"error": "Google Fit not linked"}), 400
+
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_range = now - timedelta(days=6)  # 7 days including today
+    start_time_millis = int(datetime(start_of_range.year, start_of_range.month, start_of_range.day).timestamp() * 1000)
+    end_time_millis = int(datetime(now.year, now.month, now.day, 23, 59, 59).timestamp() * 1000)
+
+    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "aggregateBy": [{
+            "dataTypeName": "com.google.step_count.delta",
+            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+        }],
+        "bucketByTime": { "durationMillis": 86400000 },  # 1 day
+        "startTimeMillis": start_time_millis,
+        "endTimeMillis": end_time_millis
+    }
+    r = requests.post(url, headers=headers, json=body)
+    if r.status_code != 200:
+        return jsonify({"error": "Failed to fetch Google Fit data"}), 400
+
+    data = r.json()
+    daily_steps = []
+    try:
+        buckets = data.get("bucket", [])
+        for bucket in buckets:
+            steps = 0
+            for dataset in bucket.get("dataset", []):
+                for point in dataset.get("point", []):
+                    for value in point.get("value", []):
+                        steps += value.get("intVal", 0)
+            # Get the date for this bucket
+            day = datetime.utcfromtimestamp(int(bucket["startTimeMillis"]) // 1000).strftime('%Y-%m-%d')
+            daily_steps.append({"date": day, "steps": steps})
+    except Exception:
+        return jsonify({"error": "Error processing Google Fit data"}), 400
+
+    return jsonify({"daily_steps": daily_steps})
+
+@app.route('/log_google_fit_steps', methods=['POST'])
+@login_required
+def log_google_fit_steps():
+    access_token = session.get('google_fit_token')
+    if not access_token:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"error": "Google Fit not linked"}), 400
+        flash("Google Fit not linked", "danger")
+        return redirect(url_for('steps_dashboard'))
+
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    start_time_millis = int(start_of_day.timestamp() * 1000)
+    end_time_millis = int(end_of_day.timestamp() * 1000)
+
+    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "aggregateBy": [{
+            "dataTypeName": "com.google.step_count.delta",
+            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+        }],
+        "bucketByTime": { "durationMillis": 86400000 },
+        "startTimeMillis": start_time_millis,
+        "endTimeMillis": end_time_millis
+    }
+    r = requests.post(url, headers=headers, json=body)
+    if r.status_code != 200:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"error": "Failed to fetch Google Fit data"}), 400
+        flash("Failed to fetch Google Fit data", "danger")
+        return redirect(url_for('steps_dashboard'))
+
+    data = r.json()
+    total_steps_today = 0
+    try:
+        buckets = data.get("bucket", [])
+        for bucket in buckets:
+            for dataset in bucket.get("dataset", []):
+                for point in dataset.get("point", []):
+                    for value in point.get("value", []):
+                        total_steps_today += value.get("intVal", 0)
+    except Exception:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"error": "Error processing Google Fit data"}), 400
+        flash("Error processing Google Fit data", "danger")
+        return redirect(url_for('steps_dashboard'))
+
+    # Get already logged steps for today
+    from models import StepLog
+    already_logged_steps = db.session.query(
+        db.func.sum(StepLog.steps)
+    ).filter(
+        StepLog.user_id == current_user.id,
+        StepLog.timestamp >= start_of_day,
+        StepLog.timestamp < end_of_day
+    ).scalar() or 0
+
+    # Only log new steps
+    new_steps = total_steps_today - already_logged_steps
+
+    if new_steps <= 0:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                "Error": f"No new steps to log for today. You have {total_steps_today} steps today."
+            }), 200
+        flash(f"No new steps to log for today. You have {total_steps_today} steps today.", "info")
+        return redirect(url_for('steps_dashboard'))
+
+    # Calculate points (1 point per 100 steps)
+    multiplier = get_points_multiplier()
+    points = (new_steps // 100) * multiplier
+
+    # Log the new steps
+    log = StepLog(user_id=current_user.id, steps=new_steps, points=points)
+
+    # Update user stats
+    if hasattr(current_user, 'total_steps'):
+        current_user.total_steps += new_steps
+        current_user.total_points += points
+
+        # Update house points
+        house = House.query.filter_by(name=current_user.house).first()
+        if house:
+            house.total_points += points
+            if hasattr(house, 'total_steps'):
+                house.total_steps += new_steps
+
+        db.session.add(log)
+        db.session.commit()
+
+        multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+        log_activity(app, current_user.id, 'Google Fit Steps Logged', f'{new_steps} steps{multiplier_text}')
+        flash(f'Added {points} points to {current_user.house} house from Google Fit!{multiplier_text}', 'success')
+    else:
+        flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        user_points = current_user.total_points
+        houses = House.query.order_by(House.total_points.desc()).all()
+        house_rankings = [
+            {
+                "name": house.name,
+                "total_points": house.total_points,
+                "total_steps": getattr(house, "total_steps", 0)
+            }
+            for house in houses
+        ]
+        return jsonify({
+            "steps": new_steps,
+            "points": points,
+            "user_points": user_points,
+            "house_rankings": house_rankings,
+            "error": None
+        })
+
+    return redirect(url_for('steps_dashboard'))
+
+@app.route('/unlink_google_fit', methods=['POST'])
+@login_required
+def unlink_google_fit():
+    # Remove the Google Fit token from the session
+    session.pop('google_fit_token', None)
+    flash("Google Fit account unlinked successfully.", "success")
+    return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     # Initialize the admin user on startup

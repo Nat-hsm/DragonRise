@@ -18,6 +18,183 @@
             </div>
         </div>
 
+        <style>
+    .googlefit-container {
+        border: 2px solid #4285F4;
+        border-radius: 12px;
+        padding: 24px 16px 16px 16px;
+        margin-bottom: 24px;
+        background: #f7faff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 100%; /* Make it full width like stats-card */
+        box-sizing: border-box;
+    }
+    .stats-card {
+        /* If you want to ensure both have the same background and padding */
+        background: #f7faff;
+        border-radius: 12px;
+        padding: 24px 16px 16px 16px;
+        margin-bottom: 24px;
+        box-sizing: border-box;
+    }
+    .googlefit-btn, .fetch-googlefit-steps-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 90%;
+        margin: 8px 0;
+        padding: 12px 0;
+        border: none;
+        border-radius: 8px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s, color 0.2s;
+    }
+    .googlefit-btn {
+        background: #fff;
+        color: #4285F4;
+        border: 2px solid #4285F4;
+    }
+    .googlefit-btn:hover {
+        background: #4285F4;
+        color: #fff;
+    }
+    .fetch-googlefit-steps-btn {
+        background: #34A853;
+        color: #fff;
+        border: 2px solid #34A853;
+    }
+    .fetch-googlefit-steps-btn:hover {
+        background: #fff;
+        color: #34A853;
+    }
+    .googlefit-logo {
+        width: 28px;
+        height: 28px;
+        margin-right: 10px;
+        vertical-align: middle;
+    }
+    #googlefit-result {
+        margin-top: 10px;
+        font-weight: 500;
+        color: #333;
+    }
+</style>
+
+<div class="googlefit-container">
+    <button id="googlefit-btn" class="googlefit-btn">
+        <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit Logo" class="googlefit-logo">
+        Link Google Fit
+    </button>
+    <button id="fetch-googlefit-steps-btn" class="fetch-googlefit-steps-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" viewBox="0 0 24 24" style="margin-right:8px;"><path fill="#fff" d="M13 2v8h8v2h-8v8h-2v-8H3V10h8V2h2z"/></svg>
+        Get Google Fit Steps
+    </button>
+    <div id="googlefit-result"></div>
+</div>
+
+<button id="fetch-googlefit-week-btn" class="fetch-googlefit-steps-btn" style="background:#fbbc05; color:#222; border-color:#fbbc05;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" viewBox="0 0 24 24" style="margin-right:8px;"><path fill="#222" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h12v2H3v-2z"/></svg>
+    Get Past 7 Days Steps
+</button>
+<div id="googlefit-week-result"></div>
+
+<script>
+document.getElementById('googlefit-btn').onclick = function() {
+    window.location.href = '/google_fit_auth';
+};
+
+document.getElementById('fetch-googlefit-steps-btn').onclick = function() {
+    fetch('/log_google_fit_steps', {
+        method: 'POST',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            // Update error message as requested
+            if (data.error === "Google Fit not linked") {
+                document.getElementById('googlefit-result').innerText = "Please link Google Fit first";
+            } else {
+                document.getElementById('googlefit-result').innerText = "Error: " + data.error;
+            }
+        } else {
+            document.getElementById('googlefit-result').innerText =
+                "Google Fit Steps: " + data.steps + " | Points Added: " + data.points;
+
+            // Update total steps in the UI (append)
+            const stepsDisplay = document.querySelector('.col-6:nth-child(1) .points-display');
+            if (stepsDisplay) {
+                let currentSteps = parseInt(stepsDisplay.textContent.replace(/,/g, '')) || 0;
+                stepsDisplay.textContent = currentSteps + data.steps;
+            }
+
+            // Update total points in the UI (append)
+            const pointsDisplay = document.querySelector('.col-6:nth-child(2) .points-display');
+            if (pointsDisplay) {
+                let currentPoints = parseInt(pointsDisplay.textContent.replace(/,/g, '')) || 0;
+                pointsDisplay.textContent = currentPoints + data.points;
+            }
+
+            // Update house rankings
+            const houseGrid = document.querySelector('.house-grid');
+            if (houseGrid && data.house_rankings) {
+                houseGrid.innerHTML = '';
+                data.house_rankings.forEach(house => {
+                    houseGrid.innerHTML += `
+                        <div class="col-md-6 house-col">
+                            <div class="house-card ${house.name}">
+                                <h4>${house.name} House</h4>
+                                <div class="points-display">${house.total_points}</div>
+                                <p>Total Steps: ${house.total_steps}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+        }
+    })
+    .catch(() => {
+        document.getElementById('googlefit-result').innerText = "An error occurred. Try to link Google Fit again.";
+    });
+};
+</script>
+
+<script>
+document.getElementById('fetch-googlefit-week-btn').onclick = function() {
+    fetch('/get_google_fit_weekly_steps', {
+        method: 'GET',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        const resultDiv = document.getElementById('googlefit-week-result');
+        if (data.error) {
+            resultDiv.innerText = "Error: " + data.error;
+        } else if (data.daily_steps && data.daily_steps.length) {
+            let html = '<table class="table table-sm mt-2"><thead><tr><th>Date</th><th>Steps</th></tr></thead><tbody>';
+            data.daily_steps.forEach(day => {
+                html += `<tr><td>${day.date}</td><td>${day.steps}</td></tr>`;
+            });
+            html += '</tbody></table>';
+            resultDiv.innerHTML = html;
+        } else {
+            resultDiv.innerText = "No step data found for the past week.";
+        }
+    })
+    .catch(() => {
+        document.getElementById('googlefit-week-result').innerText = "An error occurred. Try to link Google Fit again.";
+    });
+};
+</script>
+
         <div class="stats-card">
             <h3>Log Your Steps</h3>
             <form action="{{ url_for('log_steps') }}" method="post">
