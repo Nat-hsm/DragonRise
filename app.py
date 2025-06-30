@@ -429,50 +429,23 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    # Redirect admin to admin dashboard
-    if current_user.is_admin:
-        flash('Admin users should use the Admin Dashboard', 'info')
-        return redirect(url_for('admin_dashboard'))
-        
-    houses = House.query.order_by(House.total_points.desc()).all()
-    recent_logs = ClimbLog.query.filter_by(user_id=current_user.id)\
-        .order_by(ClimbLog.timestamp.desc()).limit(5).all()
-    return render_template('dashboard.html', 
-                         houses=houses, 
-                         user=current_user, 
-                         recent_logs=recent_logs)
-
-@app.route('/standing-dashboard')
-@login_required
-def standing_dashboard():
-    # Redirect admin to admin dashboard
-    if current_user.is_admin:
-        flash('Admin users should use the Admin Dashboard', 'info')
-        return redirect(url_for('admin_dashboard'))
-        
-    houses = House.query.order_by(House.total_points.desc()).all()
-    recent_logs = StandingLog.query.filter_by(user_id=current_user.id)\
-        .order_by(StandingLog.timestamp.desc()).limit(5).all()
-    return render_template('standing_dashboard.html', 
-                         houses=houses, 
-                         user=current_user, 
-                         recent_logs=recent_logs)
+    # Redirect to unified dashboard for regular users
+    if not current_user.is_admin:
+        return redirect(url_for('unified_dashboard'))
+    
+    # Admins go to admin dashboard
+    flash('Admin users should use the Admin Dashboard', 'info')
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/steps-dashboard')
 @login_required
 def steps_dashboard():
-    # Redirect admin to admin dashboard
-    if current_user.is_admin:
-        flash('Admin users should use the Admin Dashboard', 'info')
-        return redirect(url_for('admin_dashboard'))
-        
-    houses = House.query.order_by(House.total_points.desc()).all()
-    recent_logs = StepLog.query.filter_by(user_id=current_user.id)\
-        .order_by(StepLog.timestamp.desc()).limit(5).all()
-    return render_template('steps_dashboard.html', 
-                         houses=houses, 
-                         user=current_user, 
-                         recent_logs=recent_logs)
+    return redirect(url_for('unified_dashboard'))
+
+@app.route('/standing-dashboard')
+@login_required
+def standing_dashboard():
+    return redirect(url_for('unified_dashboard'))
 
 @app.route('/analytics-dashboard')
 @login_required
@@ -1221,3 +1194,68 @@ if __name__ == '__main__':
     # Use debug mode from environment variable and set port to 5000
     debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
     app.run(debug=debug_mode, port=5001)
+
+@app.route('/unified-dashboard')
+@login_required
+def unified_dashboard():
+    """Unified dashboard combining flights, steps, and standing activities"""
+    # Redirect admin to admin dashboard if they try to access this
+    if current_user.is_admin:
+        flash('Admin users should use the Admin Dashboard', 'info')
+        return redirect(url_for('admin_dashboard'))
+    
+    # Get house data for the leaderboard
+    houses = House.query.order_by(House.total_points.desc()).all()
+    
+    # Get recent logs for the current user
+    recent_climb_logs = ClimbLog.query.filter_by(user_id=current_user.id)\
+        .order_by(ClimbLog.timestamp.desc()).limit(3).all()
+    
+    recent_standing_logs = StandingLog.query.filter_by(user_id=current_user.id)\
+        .order_by(StandingLog.timestamp.desc()).limit(3).all()
+    
+    recent_steps_logs = StepLog.query.filter_by(user_id=current_user.id)\
+        .order_by(StepLog.timestamp.desc()).limit(3).all()
+    
+    # Combine all activities into a single timeline
+    all_activities = []
+    
+    # Add climb logs
+    for log in recent_climb_logs:
+        all_activities.append({
+            'type': 'climb',
+            'value': log.flights,
+            'points': log.points,
+            'timestamp': log.timestamp,
+            'formatted_timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M') if hasattr(log.timestamp, 'strftime') else str(log.timestamp)
+        })
+    
+    # Add standing logs
+    for log in recent_standing_logs:
+        all_activities.append({
+            'type': 'standing',
+            'value': log.minutes,
+            'points': log.points,
+            'timestamp': log.timestamp,
+            'formatted_timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M') if hasattr(log.timestamp, 'strftime') else str(log.timestamp)
+        })
+    
+    # Add steps logs
+    for log in recent_steps_logs:
+        all_activities.append({
+            'type': 'steps',
+            'value': log.steps,
+            'points': log.points,
+            'timestamp': log.timestamp,
+            'formatted_timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M') if hasattr(log.timestamp, 'strftime') else str(log.timestamp)
+        })
+    
+    # Sort all activities by timestamp (most recent first)
+    all_activities.sort(key=lambda x: x['timestamp'], reverse=True)
+    
+    return render_template('unified_dashboard.html',
+                           houses=houses,
+                           all_activities=all_activities,
+                           recent_climb_logs=recent_climb_logs,
+                           recent_standing_logs=recent_standing_logs,
+                           recent_steps_logs=recent_steps_logs)

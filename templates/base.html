@@ -43,15 +43,9 @@
                                 <a class="nav-link {% if request.endpoint == 'analytics_dashboard' %}active{% endif %}" href="{{ url_for('analytics_dashboard') }}">Analytics</a>
                             </li>
                         {% else %}
-                            <!-- Regular user navigation -->
+                            <!-- Regular user navigation - Unified Dashboard -->
                             <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Climb Dashboard</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'standing_dashboard' %}active{% endif %}" href="{{ url_for('standing_dashboard') }}">Standing Dashboard</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'steps_dashboard' %}active{% endif %}" href="{{ url_for('steps_dashboard') }}">Steps Dashboard</a>
+                                <a class="nav-link {% if request.endpoint == 'unified_dashboard' %}active{% endif %}" href="{{ url_for('unified_dashboard') }}">Dashboard</a>
                             </li>
                         {% endif %}
                         <li class="nav-item">
