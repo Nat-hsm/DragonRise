@@ -152,62 +152,17 @@ def index():
     return render_template('index.html', houses=houses)
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("200 per minute")  # Changed from 5 to 200 per minute
+@limiter.limit("200 per minute")
 def register():
-    if request.method == 'POST':
-        try:
-            username = sanitize_input(request.form['username']).strip()
-            password = request.form['password']
-            house = sanitize_input(request.form['house'])
-
-            # Validate input
-            if not username or not password or not house:
-                flash('All fields are required', 'danger')
-                return redirect(url_for('register'))
-                
-            # Validate username format
-            if not re.match(r'^[a-zA-Z0-9_-]{3,30}$', username):
-                flash('Username must be 3-30 characters and contain only letters, numbers, underscores, and hyphens', 'danger')
-                return redirect(url_for('register'))
-
-            if User.query.filter_by(username=username).first():
-                flash('Username already exists', 'danger')
-                log_activity(app, None, 'Registration Failed', 'Username Exists')
-                return redirect(url_for('register'))
-
-            # Create new user with hashed password
-            user = User(username=username, house=house)
-            user.set_password(password)
-
-            house_obj = House.query.filter_by(name=house).first()
-            if house_obj:
-                house_obj.member_count += 1
-                db.session.add(user)
-                db.session.commit()
-                log_activity(app, user.id, 'Registration', 'Success')
-                flash('Registration successful! Please login.', 'success')
-                return redirect(url_for('login'))
-            else:
-                flash('Invalid house selection', 'danger')
-                log_activity(app, None, 'Registration Failed', 'Invalid House')
-                return redirect(url_for('register'))
-
-        except Exception as e:
-            app.logger.error(f'Registration error: {str(e)}')
-            db.session.rollback()
-            flash('An error occurred during registration', 'danger')
-            return redirect(url_for('register'))
-
-    return render_template('register.html')
+    """Redirect to Cognito signup flow"""
+    flash('Please register using the secure AWS Cognito authentication system', 'info')
+    return redirect(url_for('signup'))
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("200 per minute")
 def login():
-    if request.method == 'POST':
-        # Keep your existing POST handling code
-        pass
-    
-    # For GET requests, add these parameters to force a new session
+    """Direct users to Cognito login flow"""
+    # For all requests, redirect to Cognito auth
     redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
     params = {
         'prompt': 'login',
