@@ -338,7 +338,7 @@ def auth_callback():
             if user.is_admin:
                 return redirect(url_for('admin_dashboard'))
             else:
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('unified_dashboard'))  # Instead of dashboard
             
     except Exception as e:
         app.logger.error(f'Auth callback error: {str(e)}')
@@ -389,7 +389,7 @@ def complete_registration():
                 
                 log_activity(app, user.id, 'Registration', 'Success via Cognito')
                 flash('Registration successful!', 'success')
-                return redirect(url_for('dashboard'))
+                return redirect(url_for('unified_dashboard'))
             else:
                 flash('Invalid house selection', 'danger')
         
@@ -426,111 +426,6 @@ def logout():
     flash('You have been logged out.', 'info')
     return redirect(cognito_logout_url)
 
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    # Redirect to unified dashboard for regular users
-    if not current_user.is_admin:
-        return redirect(url_for('unified_dashboard'))
-    
-    # Admins go to admin dashboard
-    flash('Admin users should use the Admin Dashboard', 'info')
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/steps-dashboard')
-@login_required
-def steps_dashboard():
-    return redirect(url_for('unified_dashboard'))
-
-@app.route('/standing-dashboard')
-@login_required
-def standing_dashboard():
-    return redirect(url_for('unified_dashboard'))
-
-@app.route('/analytics-dashboard')
-@login_required
-@admin_required
-def analytics_dashboard():
-    houses = House.query.order_by(House.name).all()
-    
-    # Prepare data for charts
-    house_names = [house.name for house in houses]
-    
-    # Define colors for each house - using the CSS variables
-    house_colors = {
-        'Black': 'rgba(51, 51, 51, 0.8)',
-        'Blue': 'rgba(0, 102, 204, 0.8)',
-        'Green': 'rgba(0, 153, 51, 0.8)',
-        'White': 'rgba(248, 249, 250, 0.8)',
-        'Gold': 'rgba(255, 204, 0, 0.8)',
-        'Purple': 'rgba(102, 0, 153, 0.8)'
-    }
-    
-    house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
-    
-    # Ensure all houses have the required attributes with default values
-    for house in houses:
-        if not hasattr(house, 'total_flights') or house.total_flights is None:
-            house.total_flights = 0
-        if not hasattr(house, 'total_standing_time') or house.total_standing_time is None:
-            house.total_standing_time = 0
-        if not hasattr(house, 'total_steps') or house.total_steps is None:
-            house.total_steps = 0
-        if not hasattr(house, 'total_points') or house.total_points is None:
-            house.total_points = 0
-    
-    # Prepare climbing data
-    climbing_data = {
-        'flights': [house.total_flights for house in houses],
-        'points': [house.total_flights * 10 for house in houses]
-    }
-    
-    # Prepare standing data
-    standing_data = {
-        'minutes': [house.total_standing_time for house in houses],
-        'points': [house.total_standing_time for house in houses]  # 1 point per minute
-    }
-    
-    # Prepare steps data
-    steps_data = {
-        'steps': [house.total_steps for house in houses],
-        'points': [(house.total_steps // 100) for house in houses]
-    }
-    
-    # Prepare combined data with explicit type definitions
-    combined_data = {
-        'climbing_points': [house.total_flights * 10 for house in houses],
-        'standing_points': [house.total_standing_time for house in houses],
-        'steps_points': [(house.total_steps // 100) for house in houses],
-        'total_points': [house.total_points for house in houses]
-    }
-    
-    # Log data in a more readable format for debugging
-    app.logger.info(f"Analytics data - Houses: {house_names}")
-    app.logger.info(f"Climbing data: {climbing_data}")
-    app.logger.info(f"Standing data: {standing_data}")
-    app.logger.info(f"Steps data: {steps_data}")
-    app.logger.info(f"Combined data: {combined_data}")
-    
-    return render_template('analytics_dashboard.html',
-                         houses=houses,
-                         house_names=house_names,
-                         house_colors=house_colors_list,
-                         climbing_data=climbing_data,
-                         standing_data=standing_data,
-                         steps_data=steps_data,
-                         combined_data=combined_data)
-
-@app.route('/user/<int:user_id>/stats')
-@login_required
-@user_data_access_required
-def user_stats(user_id):
-    """Get user statistics with access control"""
-    stats = get_user_stats(user_id)
-    if stats:
-        return jsonify(stats)
-    return abort(404)
-
 @app.route('/admin-dashboard')
 @login_required
 @admin_required
@@ -539,7 +434,7 @@ def admin_dashboard():
     if not current_user.is_admin:
         log_access_attempt(False, "Admin Dashboard", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('unified_dashboard'))  # Update this line
         
     # Get all users
     users = User.query.all()
@@ -645,7 +540,7 @@ def delete_user():
 
 @app.route('/log_climb', methods=['POST'])
 @login_required
-@limiter.limit("200 per minute")  # Added rate limiting
+@limiter.limit("200 per minute")
 @verify_content_type('application/x-www-form-urlencoded')
 def log_climb():
     try:
@@ -700,11 +595,11 @@ def log_climb():
         app.logger.error(f'Climb logging error: {str(e)}')
         db.session.rollback()
 
-    return redirect(url_for('dashboard'))
+    return redirect(url_for('unified_dashboard'))
 
 @app.route('/log_standing', methods=['POST'])
 @login_required
-@limiter.limit("200 per minute")  # Added rate limiting
+@limiter.limit("200 per minute")
 @verify_content_type('application/x-www-form-urlencoded')
 def log_standing():
     try:
@@ -763,7 +658,7 @@ def log_standing():
         app.logger.error(f'Standing time logging error: {str(e)}')
         db.session.rollback()
 
-    return redirect(url_for('standing_dashboard'))
+    return redirect(url_for('unified_dashboard'))
 
 @app.route('/log_steps', methods=['POST'])
 @login_required
@@ -813,11 +708,11 @@ def log_steps():
         app.logger.error(f'Steps logging error: {str(e)}')
         db.session.rollback()
 
-    return redirect(url_for('steps_dashboard'))
+    return redirect(url_for('unified_dashboard'))
 
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
-@limiter.limit("1000 per minute")  # Changed from 10 to 1000 per minute
+@limiter.limit("1000 per minute")
 @verify_content_type('multipart/form-data')
 def upload_screenshot():
     try:
@@ -914,7 +809,7 @@ def upload_screenshot():
         flash('An error occurred while processing your screenshot', 'danger')
         log_access_attempt(False, "File Upload", f"Error: {str(e)}")
     
-    return redirect(url_for('dashboard'))
+    return redirect(url_for('unified_dashboard'))
 
 @app.route('/upload-standing-screenshot', methods=['POST'])
 @login_required
@@ -985,7 +880,7 @@ def upload_standing_screenshot():
         app.logger.error(f'Standing screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')
     
-    return redirect(url_for('standing_dashboard'))
+    return redirect(url_for('unified_dashboard'))
 
 @app.route('/upload-steps-screenshot', methods=['POST'])
 @login_required
@@ -1059,7 +954,7 @@ def upload_steps_screenshot():
         app.logger.error(f'Steps screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')
     
-    return redirect(url_for('steps_dashboard'))
+    return redirect(url_for('unified_dashboard'))
 
 @app.route('/api/house_points')
 @require_api_key
@@ -1259,3 +1154,87 @@ def unified_dashboard():
                            recent_climb_logs=recent_climb_logs,
                            recent_standing_logs=recent_standing_logs,
                            recent_steps_logs=recent_steps_logs)
+
+@app.route('/analytics-dashboard')
+@login_required
+@admin_required
+def analytics_dashboard():
+    """Analytics dashboard for administrators"""
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        log_access_attempt(False, "Analytics Dashboard", "Non-admin access attempt")
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('unified_dashboard'))
+    
+    houses = House.query.order_by(House.name).all()
+    
+    # Get all logs for reference (if needed)
+    climb_logs = ClimbLog.query.order_by(ClimbLog.timestamp.desc()).limit(1000).all()
+    standing_logs = StandingLog.query.order_by(StandingLog.timestamp.desc()).limit(1000).all()
+    steps_logs = StepLog.query.order_by(StepLog.timestamp.desc()).limit(1000).all()
+    
+    # Prepare data for charts
+    house_names = [house.name for house in houses]
+    
+    # Define colors for each house
+    house_colors = {
+        'Black': 'rgba(51, 51, 51, 0.8)',
+        'Blue': 'rgba(0, 102, 204, 0.8)',
+        'Green': 'rgba(0, 153, 51, 0.8)',
+        'White': 'rgba(248, 249, 250, 0.8)',
+        'Gold': 'rgba(255, 204, 0, 0.8)',
+        'Purple': 'rgba(102, 0, 153, 0.8)'
+    }
+    
+    house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
+    
+    # Prepare climbing data
+    climbing_data = {
+        'flights': [house.total_flights for house in houses],
+        'points': [house.total_flights * 10 for house in houses]
+    }
+    
+    # Prepare standing data
+    standing_data = {
+        'minutes': [getattr(house, 'total_standing_time', 0) for house in houses],
+        'points': [getattr(house, 'total_standing_time', 0) for house in houses]
+    }
+    
+    # Prepare steps data
+    steps_data = {
+        'steps': [getattr(house, 'total_steps', 0) for house in houses],
+        'points': [getattr(house, 'total_steps', 0) // 100 for house in houses]
+    }
+    
+    # Prepare combined data
+    combined_data = {
+        'climbing_points': [house.total_flights * 10 for house in houses],
+        'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
+        'steps_points': [getattr(house, 'total_steps', 0) // 100 for house in houses],
+        'total_points': [house.total_points for house in houses]
+    }
+    
+    # Get activity by house
+    house_activity = {}
+    for house in houses:
+        house_activity[house.name] = {
+            'flights': house.total_flights,
+            'standing_time': house.total_standing_time,
+            'steps': house.total_steps if hasattr(house, 'total_steps') else 0,
+            'points': house.total_points,
+            'member_count': house.member_count
+        }
+    
+    log_access_attempt(True, "Analytics Dashboard", "Admin access successful")
+    return render_template('analytics_dashboard.html',
+                         houses=houses,
+                         house_names=house_names,
+                         house_colors=house_colors_list,
+                         climbing_data=climbing_data,
+                         standing_data=standing_data,
+                         steps_data=steps_data,
+                         combined_data=combined_data,
+                         climb_logs=climb_logs,
+                         standing_logs=standing_logs,
+                         steps_logs=steps_logs,
+                         house_activity=house_activity)
