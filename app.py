@@ -338,7 +338,7 @@ def auth_callback():
             if user.is_admin:
                 return redirect(url_for('admin_dashboard'))
             else:
-                return redirect(url_for('unified_dashboard'))  # Instead of dashboard
+                return redirect(url_for('dashboard'))  # Instead of dashboard
             
     except Exception as e:
         app.logger.error(f'Auth callback error: {str(e)}')
@@ -389,7 +389,7 @@ def complete_registration():
                 
                 log_activity(app, user.id, 'Registration', 'Success via Cognito')
                 flash('Registration successful!', 'success')
-                return redirect(url_for('unified_dashboard'))
+                return redirect(url_for('dashboard'))
             else:
                 flash('Invalid house selection', 'danger')
         
@@ -434,7 +434,7 @@ def admin_dashboard():
     if not current_user.is_admin:
         log_access_attempt(False, "Admin Dashboard", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('unified_dashboard'))  # Update this line
+        return redirect(url_for('dashboard'))  # Update this line
         
     # Get all users
     users = User.query.all()
@@ -482,7 +482,7 @@ def delete_user():
     if not current_user.is_admin:
         log_access_attempt(False, "Delete User", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('admin_dashboard'))
         
     try:
         user_id = request.form.get('user_id')
@@ -595,7 +595,7 @@ def log_climb():
         app.logger.error(f'Climb logging error: {str(e)}')
         db.session.rollback()
 
-    return redirect(url_for('unified_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/log_standing', methods=['POST'])
 @login_required
@@ -658,7 +658,7 @@ def log_standing():
         app.logger.error(f'Standing time logging error: {str(e)}')
         db.session.rollback()
 
-    return redirect(url_for('unified_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/log_steps', methods=['POST'])
 @login_required
@@ -708,7 +708,7 @@ def log_steps():
         app.logger.error(f'Steps logging error: {str(e)}')
         db.session.rollback()
 
-    return redirect(url_for('unified_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
@@ -809,7 +809,7 @@ def upload_screenshot():
         flash('An error occurred while processing your screenshot', 'danger')
         log_access_attempt(False, "File Upload", f"Error: {str(e)}")
     
-    return redirect(url_for('unified_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/upload-standing-screenshot', methods=['POST'])
 @login_required
@@ -880,7 +880,7 @@ def upload_standing_screenshot():
         app.logger.error(f'Standing screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')
     
-    return redirect(url_for('unified_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/upload-steps-screenshot', methods=['POST'])
 @login_required
@@ -954,7 +954,7 @@ def upload_steps_screenshot():
         app.logger.error(f'Steps screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')
     
-    return redirect(url_for('unified_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/api/house_points')
 @require_api_key
@@ -1090,9 +1090,9 @@ if __name__ == '__main__':
     debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
     app.run(debug=debug_mode, port=5001)
 
-@app.route('/unified-dashboard')
+@app.route('/dashboard')
 @login_required
-def unified_dashboard():
+def dashboard():
     """Unified dashboard combining flights, steps, and standing activities"""
     # Redirect admin to admin dashboard if they try to access this
     if current_user.is_admin:
@@ -1164,7 +1164,7 @@ def analytics_dashboard():
     if not current_user.is_admin:
         log_access_attempt(False, "Analytics Dashboard", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('unified_dashboard'))
+        return redirect(url_for('dashboard'))
     
     houses = House.query.order_by(House.name).all()
     
@@ -1224,7 +1224,6 @@ def analytics_dashboard():
             'points': house.total_points,
             'member_count': house.member_count
         }
-    
     log_access_attempt(True, "Analytics Dashboard", "Admin access successful")
     return render_template('analytics_dashboard.html',
                          houses=houses,

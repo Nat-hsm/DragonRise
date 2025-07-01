@@ -45,7 +45,7 @@
                         {% else %}
                             <!-- Regular user navigation - Unified Dashboard -->
                             <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'unified_dashboard' %}active{% endif %}" href="{{ url_for('unified_dashboard') }}">Dashboard</a>
+                                <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a>
                             </li>
                         {% endif %}
                         <li class="nav-item">
