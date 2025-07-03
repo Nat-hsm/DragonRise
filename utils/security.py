@@ -46,10 +46,11 @@ def verify_content_type(content_type):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            if request.content_type and content_type in request.content_type:
+            if request.headers.get('Content-Type', '').startswith(content_type):
                 return f(*args, **kwargs)
             else:
-                abort(415)  # Unsupported Media Type
+                log_access_attempt(False, "Content Type Verification", f"Invalid content type: {request.headers.get('Content-Type')}")
+                abort(400)  # Bad Request
         return decorated_function
     return decorator
 

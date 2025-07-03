@@ -159,73 +159,37 @@ def index():
     return render_template('index.html', houses=houses)
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("200 per minute")  # Changed from 5 to 200 per minute
+@limiter.limit("200 per minute")
 def register():
-    if request.method == 'POST':
-        try:
-            username = sanitize_input(request.form['username']).strip()
-            password = request.form['password']
-            house = sanitize_input(request.form['house'])
-
-            # Validate input
-            if not username or not password or not house:
-                flash('All fields are required', 'danger')
-                return redirect(url_for('register'))
-                
-            # Validate username format
-            if not re.match(r'^[a-zA-Z0-9_-]{3,30}$', username):
-                flash('Username must be 3-30 characters and contain only letters, numbers, underscores, and hyphens', 'danger')
-                return redirect(url_for('register'))
-
-            if User.query.filter_by(username=username).first():
-                flash('Username already exists', 'danger')
-                log_activity(app, None, 'Registration Failed', 'Username Exists')
-                return redirect(url_for('register'))
-
-            # Create new user with hashed password
-            user = User(username=username, house=house)
-            user.set_password(password)
-
-            house_obj = House.query.filter_by(name=house).first()
-            if house_obj:
-                house_obj.member_count += 1
-                db.session.add(user)
-                db.session.commit()
-                log_activity(app, user.id, 'Registration', 'Success')
-                flash('Registration successful! Please login.', 'success')
-                return redirect(url_for('login'))
-            else:
-                flash('Invalid house selection', 'danger')
-                log_activity(app, None, 'Registration Failed', 'Invalid House')
-                return redirect(url_for('register'))
-
-        except Exception as e:
-            app.logger.error(f'Registration error: {str(e)}')
-            db.session.rollback()
-            flash('An error occurred during registration', 'danger')
-            return redirect(url_for('register'))
-
-    return render_template('register.html')
+    """Redirect to Cognito signup flow"""
+    flash('Please register using the secure AWS Cognito authentication system', 'info')
+    return redirect(url_for('signup'))
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("200 per minute")
 def login():
-    if request.method == 'POST':
-        # Keep your existing POST handling code
-        pass
-    
-    # For GET requests, use OAuth with explicit redirect URI
-    # Instead of dynamically generating it
+    """Direct users to Cognito login flow"""
+    # For all requests, redirect to Cognito auth
     redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
-    return oauth.oidc.authorize_redirect(redirect_uri)
+    params = {
+        'prompt': 'login',
+        'max_age': 0,  # Force re-authentication
+        'id_token_hint': None  # Ignore any existing session
+    }
+    return oauth.oidc.authorize_redirect(redirect_uri, **params)
 
 @app.route('/signup')
 @limiter.limit("200 per minute")
 def signup():
     """Direct users to Cognito signup flow"""
-    redirect_uri = url_for('auth_callback', _external=True)
-    # Explicitly set state to 'signup' to indicate this is a registration flow
-    return oauth.oidc.authorize_redirect(redirect_uri, state="signup")
+    redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
+    # Add parameters that force a fresh session
+    params = {
+        'prompt': 'login',
+        'max_age': 0,
+        'state': 'signup'
+    }
+    return oauth.oidc.authorize_redirect(redirect_uri, **params)
 
 @app.route('/auth/callback')
 def auth_callback():
@@ -251,8 +215,6 @@ def auth_callback():
         
         app.logger.info(f"Token exchange successful! User authenticated.")
         
-        # Rest of your authentication logic here...
-        
         # Get ID token and access token
         id_token = token_response.get('id_token')
         access_token = token_response.get('access_token')
@@ -267,29 +229,62 @@ def auth_callback():
         cognito_username = claims.get('cognito:username')
         email = claims.get('email')
         
-        # Get user attributes
-        user_attrs = cognito_auth.get_user_attributes(access_token)
+        # Check if this is the admin user from Cognito (case-insensitive)
+        is_admin_login = cognito_username.lower() == 'admin'
         
         # Check if user already exists in our database
         user = User.query.filter(User.username.ilike(cognito_username)).first()
         
         if not user:
             # New user - handle signup flow
-            if state == 'signup':
-                # Redirect to house selection page with token in session
-                session['temp_cognito_data'] = {
-                    'username': cognito_username,
-                    'email': email,
-                    'id_token': id_token,
-                    'access_token': access_token
-                }
-                return redirect(url_for('complete_registration'))
+            if state == 'signup' or is_admin_login:
+                if is_admin_login:
+                    # Create admin user automatically
+                    user = User(
+                        username='Admin',
+                        email=email,
+                        house='Admin',
+                        is_admin=True
+                    )
+                    # Generate a secure password (they'll authenticate via Cognito)
+                    import secrets
+                    random_password = secrets.token_urlsafe(16)
+                    user.set_password(random_password)
+                    
+                    db.session.add(user)
+                    db.session.commit()
+                    
+                    # Log the admin user in
+                    login_user(user)
+                    
+                    # Store tokens in session
+                    session['cognito_id_token'] = id_token
+                    session['cognito_access_token'] = access_token
+                    
+                    log_activity(app, user.id, 'Admin Registration', 'Success via Cognito')
+                    flash('Admin account created successfully!', 'success')
+                    return redirect(url_for('admin_dashboard'))
+                else:
+                    # Regular user signup, continue with house selection
+                    session['temp_cognito_data'] = {
+                        'username': cognito_username,
+                        'email': email,
+                        'id_token': id_token,
+                        'access_token': access_token
+                    }
+                    return redirect(url_for('complete_registration'))
             else:
                 # User doesn't exist but tried to login
                 flash('Please register first', 'warning')
                 return redirect(url_for('signup'))
         else:
             # Existing user - log them in
+            
+            # Ensure admin status is correct for admin user
+            if is_admin_login and not user.is_admin:
+                user.is_admin = True
+                db.session.commit()
+            
             login_user(user)
             user.last_login = datetime.now(timezone.utc)
             db.session.commit()
@@ -301,11 +296,15 @@ def auth_callback():
             session['cognito_id_token'] = id_token
             session['cognito_access_token'] = access_token
             
-            return redirect(url_for('dashboard'))
+            # Redirect admin users to admin dashboard
+            if user.is_admin:
+                return redirect(url_for('admin_dashboard'))
+            else:
+                return redirect(url_for('dashboard'))  # Instead of dashboard
             
     except Exception as e:
         app.logger.error(f'Auth callback error: {str(e)}')
-        flash(f'Authentication error: {str(e)}', 'danger')  # Show the actual error
+        flash('Authentication error', 'danger')
         return redirect(url_for('index'))
 
 # Add route to complete registration (house selection)
@@ -372,148 +371,24 @@ def logout():
     session.pop('google_fit_token', None)  # Remove Google Fit token from session
     # Standard Flask-Login logout
     logout_user()
+    
+    # Clear all Flask session data
+    session.clear()
+    
+    # Log activity
+    if user_id:
+        log_activity(app, user_id, 'Logout', 'Success')
+    
+    # Build Cognito logout URL with proper URL encoding and global_logout parameter
+    from urllib.parse import quote
+    domain = app.config.get('COGNITO_DOMAIN')
+    client_id = app.config.get('COGNITO_CLIENT_ID')
+    logout_uri = quote(url_for('index', _external=True))
+    
+    cognito_logout_url = f"https://{domain}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com/logout?client_id={client_id}&logout_uri={logout_uri}&global_signout=true"
+    
     flash('You have been logged out.', 'info')
-    
-    try:
-        # Return to Cognito logout if OAuth is available
-        return redirect(oauth.oidc.api_base_url + 
-                      '/logout?client_id=' + app.config['COGNITO_CLIENT_ID'] +
-                      '&logout_uri=' + url_for('index', _external=True))
-    except:
-        # Fallback to regular logout if OAuth fails
-        return redirect(url_for('index'))
-
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    # Redirect admin to admin dashboard
-    if current_user.is_admin:
-        flash('Admin users should use the Admin Dashboard', 'info')
-        return redirect(url_for('admin_dashboard'))
-        
-    houses = House.query.order_by(House.total_points.desc()).all()
-    recent_logs = ClimbLog.query.filter_by(user_id=current_user.id)\
-        .order_by(ClimbLog.timestamp.desc()).limit(5).all()
-    return render_template('dashboard.html', 
-                         houses=houses, 
-                         user=current_user, 
-                         recent_logs=recent_logs)
-
-@app.route('/standing-dashboard')
-@login_required
-def standing_dashboard():
-    # Redirect admin to admin dashboard
-    if current_user.is_admin:
-        flash('Admin users should use the Admin Dashboard', 'info')
-        return redirect(url_for('admin_dashboard'))
-        
-    houses = House.query.order_by(House.total_points.desc()).all()
-    recent_logs = StandingLog.query.filter_by(user_id=current_user.id)\
-        .order_by(StandingLog.timestamp.desc()).limit(5).all()
-    return render_template('standing_dashboard.html', 
-                         houses=houses, 
-                         user=current_user, 
-                         recent_logs=recent_logs)
-
-@app.route('/steps-dashboard')
-@login_required
-def steps_dashboard():
-    # Redirect admin to admin dashboard
-    if current_user.is_admin:
-        flash('Admin users should use the Admin Dashboard', 'info')
-        return redirect(url_for('admin_dashboard'))
-        
-    houses = House.query.order_by(House.total_points.desc()).all()
-    recent_logs = StepLog.query.filter_by(user_id=current_user.id)\
-        .order_by(StepLog.timestamp.desc()).limit(5).all()
-    return render_template('steps_dashboard.html', 
-                         houses=houses, 
-                         user=current_user, 
-                         recent_logs=recent_logs)
-
-@app.route('/analytics-dashboard')
-@login_required
-@admin_required
-def analytics_dashboard():
-    houses = House.query.order_by(House.name).all()
-    
-    # Prepare data for charts
-    house_names = [house.name for house in houses]
-    
-    # Define colors for each house - using the CSS variables
-    house_colors = {
-        'Black': 'rgba(51, 51, 51, 0.8)',
-        'Blue': 'rgba(0, 102, 204, 0.8)',
-        'Green': 'rgba(0, 153, 51, 0.8)',
-        'White': 'rgba(248, 249, 250, 0.8)',
-        'Gold': 'rgba(255, 204, 0, 0.8)',
-        'Purple': 'rgba(102, 0, 153, 0.8)'
-    }
-    
-    house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
-    
-    # Ensure all houses have the required attributes with default values
-    for house in houses:
-        if not hasattr(house, 'total_flights') or house.total_flights is None:
-            house.total_flights = 0
-        if not hasattr(house, 'total_standing_time') or house.total_standing_time is None:
-            house.total_standing_time = 0
-        if not hasattr(house, 'total_steps') or house.total_steps is None:
-            house.total_steps = 0
-        if not hasattr(house, 'total_points') or house.total_points is None:
-            house.total_points = 0
-    
-    # Prepare climbing data
-    climbing_data = {
-        'flights': [house.total_flights for house in houses],
-        'points': [house.total_flights * 10 for house in houses]
-    }
-    
-    # Prepare standing data
-    standing_data = {
-        'minutes': [house.total_standing_time for house in houses],
-        'points': [house.total_standing_time for house in houses]  # 1 point per minute
-    }
-    
-    # Prepare steps data
-    steps_data = {
-        'steps': [house.total_steps for house in houses],
-        'points': [(house.total_steps // 100) for house in houses]
-    }
-    
-    # Prepare combined data with explicit type definitions
-    combined_data = {
-        'climbing_points': [house.total_flights * 10 for house in houses],
-        'standing_points': [house.total_standing_time for house in houses],
-        'steps_points': [(house.total_steps // 100) for house in houses],
-        'total_points': [house.total_points for house in houses]
-    }
-    
-    # Log data in a more readable format for debugging
-    app.logger.info(f"Analytics data - Houses: {house_names}")
-    app.logger.info(f"Climbing data: {climbing_data}")
-    app.logger.info(f"Standing data: {standing_data}")
-    app.logger.info(f"Steps data: {steps_data}")
-    app.logger.info(f"Combined data: {combined_data}")
-    
-    return render_template('analytics_dashboard.html',
-                         houses=houses,
-                         house_names=house_names,
-                         house_colors=house_colors_list,
-                         climbing_data=climbing_data,
-                         standing_data=standing_data,
-                         steps_data=steps_data,
-                         combined_data=combined_data)
-
-@app.route('/user/<int:user_id>/stats')
-@login_required
-@user_data_access_required
-def user_stats(user_id):
-    """Get user statistics with access control"""
-    stats = get_user_stats(user_id)
-    if stats:
-        return jsonify(stats)
-    return abort(404)
+    return redirect(cognito_logout_url)
 
 @app.route('/admin-dashboard')
 @login_required
@@ -523,7 +398,7 @@ def admin_dashboard():
     if not current_user.is_admin:
         log_access_attempt(False, "Admin Dashboard", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('dashboard'))  # Update this line
         
     # Get all users
     users = User.query.all()
@@ -564,13 +439,14 @@ def admin_dashboard():
 @app.route('/admin-dashboard/delete-user', methods=['POST'])
 @login_required
 @admin_required
+@limiter.limit("200 per minute")  # Add rate limiting here instead
 @verify_content_type('application/x-www-form-urlencoded')
 def delete_user():
     # Verify admin status again as an extra precaution
     if not current_user.is_admin:
         log_access_attempt(False, "Delete User", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('admin_dashboard'))
         
     try:
         user_id = request.form.get('user_id')
@@ -628,7 +504,7 @@ def delete_user():
 
 @app.route('/log_climb', methods=['POST'])
 @login_required
-@limiter.limit("20 per minute")  # Added rate limiting
+@limiter.limit("200 per minute")
 @verify_content_type('application/x-www-form-urlencoded')
 def log_climb():
     try:
@@ -687,7 +563,7 @@ def log_climb():
 
 @app.route('/log_standing', methods=['POST'])
 @login_required
-@limiter.limit("20 per minute")  # Added rate limiting
+@limiter.limit("200 per minute")
 @verify_content_type('application/x-www-form-urlencoded')
 def log_standing():
     try:
@@ -746,7 +622,7 @@ def log_standing():
         app.logger.error(f'Standing time logging error: {str(e)}')
         db.session.rollback()
 
-    return redirect(url_for('standing_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/log_steps', methods=['POST'])
 @login_required
@@ -796,11 +672,11 @@ def log_steps():
         app.logger.error(f'Steps logging error: {str(e)}')
         db.session.rollback()
 
-    return redirect(url_for('steps_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
-@limiter.limit("1000 per minute")  # Changed from 10 to 1000 per minute
+@limiter.limit("1000 per minute")
 @verify_content_type('multipart/form-data')
 def upload_screenshot():
     try:
@@ -968,7 +844,7 @@ def upload_standing_screenshot():
         app.logger.error(f'Standing screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')
     
-    return redirect(url_for('standing_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/upload-steps-screenshot', methods=['POST'])
 @login_required
@@ -1042,7 +918,7 @@ def upload_steps_screenshot():
         app.logger.error(f'Steps screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')
     
-    return redirect(url_for('steps_dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/api/house_points')
 @require_api_key

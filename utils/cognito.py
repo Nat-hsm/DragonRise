@@ -31,7 +31,8 @@ class CognitoAuth:
             'client_id': self.client_id,
             'response_type': 'code',
             'scope': 'email+openid+profile',
-            'redirect_uri': self.redirect_uri
+            'redirect_uri': self.redirect_uri,
+            'prompt': 'login'  # Add this parameter to force login prompt
         }
         
         if state:
