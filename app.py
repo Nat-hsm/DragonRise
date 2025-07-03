@@ -23,15 +23,11 @@ from authlib.integrations.flask_client import OAuth
 from urllib.parse import urlencode
 import requests
 
-# Load environment variables first
-load_dotenv()
 
-# Google Fit configuration - loaded after dotenv
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
-GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI', 'http://127.0.0.1:5001/google_fit_callback')
+GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI')
 GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.activity.read"
-
 
 # Load environment variables
 load_dotenv()
@@ -1167,22 +1163,16 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg'})
 
+
+
 @app.route('/google_fit_auth')
 @login_required
 def google_fit_auth():
-    # Use global variables instead of redefining them
+    GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+    GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI')
+    GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.activity.read"
     if not GOOGLE_CLIENT_ID:
-        app.logger.error("Google Fit Client ID not set")
-        flash("Google Fit is not configured properly. Please contact the administrator.", "danger")
-        return redirect(url_for('steps_dashboard'))
-    
-    if not GOOGLE_CLIENT_SECRET:
-        app.logger.error("Google Fit Client Secret not set")
-        flash("Google Fit is not configured properly. Please contact the administrator.", "danger")
-        return redirect(url_for('steps_dashboard'))
-    
-    #app.logger.info(f"Google Fit auth - Client ID: {GOOGLE_CLIENT_ID[:10]}..., Redirect URI: {GOOGLE_FIT_REDIRECT_URI}")
-    app.logger.info(f"Google Fit auth - Client ID exists: {bool(GOOGLE_CLIENT_ID)}, Redirect URI: {GOOGLE_FIT_REDIRECT_URI}")
+        return "Google Fit Client ID not set", 500
     auth_url = (
         "https://accounts.google.com/o/oauth2/v2/auth"
         "?response_type=code"
@@ -1197,65 +1187,30 @@ def google_fit_auth():
 @app.route('/google_fit_callback')
 @login_required
 def google_fit_callback():
-    try:
-        app.logger.info("Handling Google Fit callback")
-        code = request.args.get('code')
-        error = request.args.get('error')
-        
-        if error:
-            app.logger.error(f"Google Fit authorization error: {error}")
-            flash(f"Google Fit authorization failed: {error}", "danger")
-            return redirect(url_for('steps_dashboard'))
-        
-        if not code:
-            app.logger.error("No authorization code received from Google")
-            flash("Google Fit authorization failed - no code received.", "danger")
-            return redirect(url_for('steps_dashboard'))
+    code = request.args.get('code')
+    if not code:
+        flash("Google Fit authorization failed.", "danger")
+        return redirect(url_for('steps_dashboard'))  # <-- update here
 
-        # Exchange code for token
-        token_url = "https://oauth2.googleapis.com/token"
-        data = {
-            "code": code,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
-            "grant_type": "authorization_code"
-        }
-        
-        app.logger.info(f"Exchanging code for token with redirect_uri: {GOOGLE_FIT_REDIRECT_URI}")
-    
-    
-        r = requests.post(token_url, data=data, timeout=10)
-        app.logger.info(f"Token exchange response status: {r.status_code}")
-        
-        if r.status_code != 200:
-            app.logger.error(f"Token exchange failed: {r.status_code} - {r.text}")
-            flash(f"Failed to get Google Fit token. Status: {r.status_code}", "danger")
-            return redirect(url_for('steps_dashboard'))
-            
-        token_info = r.json()
-        access_token = token_info.get("access_token")
-        
-        if not access_token:
-            app.logger.error(f"No access token in response: {token_info}")
-            flash("Failed to get Google Fit access token.", "danger")
-            return redirect(url_for('steps_dashboard'))
-            
-        session['google_fit_token'] = access_token
-        app.logger.info("Google Fit token successfully stored in session")
-        flash("Google Fit account linked successfully!", "success")
-        
-    except requests.RequestException as e:
-        app.logger.error(f"Request error during token exchange: {str(e)}")
-        flash("Network error while connecting to Google Fit.", "danger")
-        return redirect(url_for('steps_dashboard'))
-    except Exception as e:
-        app.logger.error(f"Unexpected error during token exchange: {str(e)}")
-        flash("An unexpected error occurred while linking Google Fit.", "danger")
-        return redirect(url_for('steps_dashboard'))
+    # Exchange code for token
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
+        "grant_type": "authorization_code"
+    }
+    r = requests.post(token_url, data=data)
+    if r.status_code != 200:
+        flash("Failed to get Google Fit token.", "danger")
+        return redirect(url_for('dashboard'))
+    token_info = r.json()
+    access_token = token_info.get("access_token")
+    session['google_fit_token'] = access_token
 
     # Redirect to steps dashboard after linking
-    return redirect(url_for('steps_dashboard'))
+    return redirect(url_for('steps_dashboard'))  # <-- update here
 
 @app.route('/get_google_fit_steps')
 @login_required
@@ -1490,43 +1445,6 @@ def unlink_google_fit():
     flash("Google Fit account unlinked successfully.", "success")
     return redirect(url_for('dashboard'))
 
-@app.route('/debug-google-fit')
-@login_required
-def debug_google_fit():
-    """Debug Google Fit configuration"""
-    return f"""
-    <h1>Google Fit Configuration Debug</h1>
-    <h2>Environment Variables</h2>
-    <ul>
-        <li><strong>GOOGLE_CLIENT_ID:</strong> {'✅ Set' if GOOGLE_CLIENT_ID else '❌ Not Set'} ({GOOGLE_CLIENT_ID[:10]}... if set)</li>
-        <li><strong>GOOGLE_CLIENT_SECRET:</strong> {'✅ Set' if GOOGLE_CLIENT_SECRET else '❌ Not Set'} ({'*' * 8 if GOOGLE_CLIENT_SECRET else 'Not set'})</li>
-        <li><strong>GOOGLE_FIT_REDIRECT_URI:</strong> {GOOGLE_FIT_REDIRECT_URI}</li>
-        <li><strong>GOOGLE_FIT_SCOPE:</strong> {GOOGLE_FIT_SCOPE}</li>
-    </ul>
-    <h2>Current Request Info</h2>
-    <ul>
-        <li><strong>Current URL:</strong> {request.url}</li>
-        <li><strong>Host URL:</strong> {request.host_url}</li>
-        <li><strong>Base URL:</strong> {request.url_root}</li>
-    </ul>
-    <h2>Expected vs Configured</h2>
-    <ul>
-        <li><strong>Expected Callback:</strong> {request.url_root.rstrip('/')}/google_fit_callback</li>
-        <li><strong>Configured Callback:</strong> {GOOGLE_FIT_REDIRECT_URI}</li>
-        <li><strong>Match:</strong> {'✅ Match' if GOOGLE_FIT_REDIRECT_URI == f"{request.url_root.rstrip('/')}/google_fit_callback" else '❌ Mismatch'}</li>
-    </ul>
-    <h2>Test Links</h2>
-    <p><a href="/google_fit_auth" class="btn btn-primary">Test Google Fit Auth</a></p>
-    <h2>Troubleshooting</h2>
-    <ol>
-        <li>Make sure your Google Cloud Console OAuth redirect URI matches the configured callback</li>
-        <li>Verify the Client ID and Secret are correct</li>
-        <li>Check that the Google Fitness API is enabled in your project</li>
-    </ol>
-    """
-
-# ...existing code...
-
 if __name__ == '__main__':
     # Initialize the admin user on startup
     with app.app_context():
@@ -1540,7 +1458,7 @@ if __name__ == '__main__':
     
     # Use debug mode from environment variable and set port to 5000
     debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
-    app.run(debug=debug_mode, port=5001)
+    app.run(debug=debug_mode, port=5001, ssl_context=('certificates/cert.pem', 'certificates/key.pem'))
 
 @app.route('/debug-cognito')
 def debug_cognito():
