@@ -87,6 +87,56 @@
                 
                 <!-- Steps Tab -->
                 <div class="tab-pane fade" id="steps-content" role="tabpanel" aria-labelledby="steps-tab">
+
+                   
+                    <div class="d-flex gap-2 mb-3">
+                    <button type="button" class="btn btn-opaque-rect" id="link-google-fit-btn" title="Link Google Fit">
+                    <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
+                    <span class="ms-2">Link Google Fit</span>
+                    </button>
+                    <button type="button" class="btn btn-opaque-rect" id="link-garmin-btn" title="Link Garmin">
+                    <img src="{{ url_for('static', filename='garmin_logo.png') }}" alt="Garmin" class="icon-img">
+                    <span class="ms-2">Link Garmin Connect</span>
+                    </button>
+                    </div>
+                    <style>
+.btn-opaque-rect {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid #d1d5db;
+    color: #222;
+    border-radius: 0.5rem;
+    padding: 0.25rem 0.8rem;
+    font-size: 0.97rem;
+    min-width: 120px;
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.btn-opaque-rect:hover {
+    background: rgba(240,240,240,0.98);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+.icon-img {
+    width: 20px;
+    height: 20px;
+    display: inline-block;
+}
+</style>
+
+                    <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn">
+                    Get Google Fit Steps
+                    </button>
+                    <div id="google-fit-steps-result" class="mb-2 text-center text-muted" style="font-size: 1.1em;"></div>
+
+                
+                    <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-garmin-steps-btn">
+                     Get Garmin Steps & Stairs
+                    </button>
+                    <div id="garmin-steps-result" class="mb-2 text-center text-muted" style="font-size: 1.1em;"></div>
+
+
                     <form action="{{ url_for('log_steps') }}" method="post">
                         <div class="mb-3">
                             <label for="steps" class="form-label">Number of Steps</label>
@@ -218,4 +268,57 @@
     border-bottom-right-radius: 0.25rem;
 }
 </style>
+
+<script>
+document.getElementById('get-google-fit-steps-btn').onclick = function() {
+    const resultDiv = document.getElementById('google-fit-steps-result');
+    resultDiv.textContent = "Fetching steps...";
+    fetch('/get_google_fit_steps')
+        .then(res => res.json())
+        .then(data => {
+            if (data.steps !== undefined) {
+                // document.getElementById('steps').value = data.steps; // <-- Remove or comment out this line
+                resultDiv.textContent = "Google Fit Steps: " + data.steps;
+            } else if (data.error) {
+                resultDiv.textContent = "Error: " + data.error;
+            } else {
+                resultDiv.textContent = "No data received.";
+            }
+        })
+        .catch(() => {
+            resultDiv.textContent = "Failed to fetch steps.";
+        });
+};
+</script>
+
+<script>
+document.getElementById('link-google-fit-btn').onclick = function() {
+    window.location.href = "{{ url_for('google_fit_auth') }}";
+};
+</script>
+<script>
+document.getElementById('link-garmin-btn').onclick = function() {
+    window.location.href = "{{ url_for('garmin_auth') }}";
+};
+document.getElementById('get-garmin-steps-btn').onclick = function() {
+    const resultDiv = document.getElementById('garmin-steps-result');
+    resultDiv.textContent = "Fetching data...";
+    fetch('/get_garmin_steps')
+        .then(res => res.json())
+        .then(data => {
+            if (data.steps !== undefined && data.stairs !== undefined) {
+                resultDiv.textContent = "Garmin Steps: " + data.steps + ", Stairs Climbed: " + data.stairs;
+            } else if (data.error) {
+                resultDiv.textContent = "Error: " + data.error;
+            } else {
+                resultDiv.textContent = "No data received.";
+            }
+        })
+        .catch(() => {
+            resultDiv.textContent = "Failed to fetch data.";
+        });
+};
+</script>
+
+
 {% endblock %}
