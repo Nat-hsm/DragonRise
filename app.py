@@ -21,13 +21,12 @@ from config import get_config, validate_config
 from extensions import db, login_manager, migrate, cognito_auth
 from authlib.integrations.flask_client import OAuth
 from urllib.parse import urlencode
+
+# For Google Fit Integration and Garmin API
 import requests
-
-
-GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
-GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
-GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI')
-GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.activity.read"
+import base64
+import hashlib
+import pkce  # pip install pkce
 
 # Load environment variables
 load_dotenv()
@@ -364,11 +363,9 @@ def complete_registration():
 @app.route('/logout')
 @login_required
 def logout():
-    # Clear session data
-    session.pop('user', None)
-    session.pop('cognito_id_token', None)
-    session.pop('cognito_access_token', None)
-    session.pop('google_fit_token', None)  # Remove Google Fit token from session
+    # Store the current user's identity before logging out
+    user_id = current_user.id if current_user.is_authenticated else None
+    
     # Standard Flask-Login logout
     logout_user()
     
@@ -1039,288 +1036,6 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg'})
 
-
-
-@app.route('/google_fit_auth')
-@login_required
-def google_fit_auth():
-    GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
-    GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI')
-    GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.activity.read"
-    if not GOOGLE_CLIENT_ID:
-        return "Google Fit Client ID not set", 500
-    auth_url = (
-        "https://accounts.google.com/o/oauth2/v2/auth"
-        "?response_type=code"
-        f"&client_id={GOOGLE_CLIENT_ID}"
-        f"&redirect_uri={GOOGLE_FIT_REDIRECT_URI}"
-        f"&scope={GOOGLE_FIT_SCOPE}"
-        "&access_type=offline"
-        "&prompt=consent"
-    )
-    return redirect(auth_url)
-
-@app.route('/google_fit_callback')
-@login_required
-def google_fit_callback():
-    code = request.args.get('code')
-    if not code:
-        flash("Google Fit authorization failed.", "danger")
-        return redirect(url_for('steps_dashboard'))  # <-- update here
-
-    # Exchange code for token
-    token_url = "https://oauth2.googleapis.com/token"
-    data = {
-        "code": code,
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-        "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
-        "grant_type": "authorization_code"
-    }
-    r = requests.post(token_url, data=data)
-    if r.status_code != 200:
-        flash("Failed to get Google Fit token.", "danger")
-        return redirect(url_for('dashboard'))
-    token_info = r.json()
-    access_token = token_info.get("access_token")
-    session['google_fit_token'] = access_token
-
-    # Redirect to steps dashboard after linking
-    return redirect(url_for('steps_dashboard'))  # <-- update here
-
-@app.route('/get_google_fit_steps')
-@login_required
-def get_google_fit_steps():
-    access_token = session.get('google_fit_token')
-    if not access_token:
-        return jsonify({"error": "Google Fit not linked"}), 400
-
-    # Get today's steps
-    import time
-    from datetime import datetime, timedelta
-
-    now = datetime.utcnow()
-    start_of_day = datetime(now.year, now.month, now.day)
-    end_of_day = start_of_day + timedelta(days=1)
-
-    start_time_millis = int(start_of_day.timestamp() * 1000)
-    end_time_millis = int(end_of_day.timestamp() * 1000)
-
-    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    body = {
-        "aggregateBy": [{
-            "dataTypeName": "com.google.step_count.delta",
-            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
-        }],
-        "bucketByTime": { "durationMillis": 86400000 },
-        "startTimeMillis": start_time_millis,
-        "endTimeMillis": end_time_millis
-    }
-    r = requests.post(url, headers=headers, json=body)
-    if r.status_code != 200:
-        return jsonify({"error": "Failed to fetch Google Fit data"}), 400
-
-    data = r.json()
-    total_steps_today = 0
-    try:
-        buckets = data.get("bucket", [])
-        for bucket in buckets:
-            for dataset in bucket.get("dataset", []):
-                for point in dataset.get("point", []):
-                    for value in point.get("value", []):
-                        total_steps_today += value.get("intVal", 0)
-    except Exception:
-        pass
-
-    return jsonify({"steps": total_steps_today})
-
-@app.route('/get_google_fit_weekly_steps')
-@login_required
-def get_google_fit_weekly_steps():
-    access_token = session.get('google_fit_token')
-    if not access_token:
-        return jsonify({"error": "Google Fit not linked"}), 400
-
-    from datetime import datetime, timedelta
-
-    now = datetime.utcnow()
-    start_of_range = now - timedelta(days=6)  # 7 days including today
-    start_time_millis = int(datetime(start_of_range.year, start_of_range.month, start_of_range.day).timestamp() * 1000)
-    end_time_millis = int(datetime(now.year, now.month, now.day, 23, 59, 59).timestamp() * 1000)
-
-    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    body = {
-        "aggregateBy": [{
-            "dataTypeName": "com.google.step_count.delta",
-            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
-        }],
-        "bucketByTime": { "durationMillis": 86400000 },  # 1 day
-        "startTimeMillis": start_time_millis,
-        "endTimeMillis": end_time_millis
-    }
-    r = requests.post(url, headers=headers, json=body)
-    if r.status_code != 200:
-        return jsonify({"error": "Failed to fetch Google Fit data"}), 400
-
-    data = r.json()
-    daily_steps = []
-    try:
-        buckets = data.get("bucket", [])
-        for bucket in buckets:
-            steps = 0
-            for dataset in bucket.get("dataset", []):
-                for point in dataset.get("point", []):
-                    for value in point.get("value", []):
-                        steps += value.get("intVal", 0)
-            # Get the date for this bucket
-            day = datetime.utcfromtimestamp(int(bucket["startTimeMillis"]) // 1000).strftime('%Y-%m-%d')
-            daily_steps.append({"date": day, "steps": steps})
-    except Exception:
-        return jsonify({"error": "Error processing Google Fit data"}), 400
-
-    return jsonify({"daily_steps": daily_steps})
-
-@app.route('/log_google_fit_steps', methods=['POST'])
-@login_required
-def log_google_fit_steps():
-    access_token = session.get('google_fit_token')
-    if not access_token:
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({"error": "Google Fit not linked"}), 400
-        flash("Google Fit not linked", "danger")
-        return redirect(url_for('steps_dashboard'))
-
-    from datetime import datetime, timedelta
-
-    now = datetime.utcnow()
-    start_of_day = datetime(now.year, now.month, now.day)
-    end_of_day = start_of_day + timedelta(days=1)
-
-    start_time_millis = int(start_of_day.timestamp() * 1000)
-    end_time_millis = int(end_of_day.timestamp() * 1000)
-
-    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    body = {
-        "aggregateBy": [{
-            "dataTypeName": "com.google.step_count.delta",
-            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
-        }],
-        "bucketByTime": { "durationMillis": 86400000 },
-        "startTimeMillis": start_time_millis,
-        "endTimeMillis": end_time_millis
-    }
-    r = requests.post(url, headers=headers, json=body)
-    if r.status_code != 200:
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({"error": "Failed to fetch Google Fit data"}), 400
-        flash("Failed to fetch Google Fit data", "danger")
-        return redirect(url_for('steps_dashboard'))
-
-    data = r.json()
-    total_steps_today = 0
-    try:
-        buckets = data.get("bucket", [])
-        for bucket in buckets:
-            for dataset in bucket.get("dataset", []):
-                for point in dataset.get("point", []):
-                    for value in point.get("value", []):
-                        total_steps_today += value.get("intVal", 0)
-    except Exception:
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({"error": "Error processing Google Fit data"}), 400
-        flash("Error processing Google Fit data", "danger")
-        return redirect(url_for('steps_dashboard'))
-
-    # Get already logged steps for today
-    from models import StepLog
-    already_logged_steps = db.session.query(
-        db.func.sum(StepLog.steps)
-    ).filter(
-        StepLog.user_id == current_user.id,
-        StepLog.timestamp >= start_of_day,
-        StepLog.timestamp < end_of_day
-    ).scalar() or 0
-
-    # Only log new steps
-    new_steps = total_steps_today - already_logged_steps
-
-    if new_steps <= 0:
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({
-                "Error": f"No new steps to log for today. You have {total_steps_today} steps today."
-            }), 200
-        flash(f"No new steps to log for today. You have {total_steps_today} steps today.", "info")
-        return redirect(url_for('steps_dashboard'))
-
-    # Calculate points (1 point per 100 steps)
-    multiplier = get_points_multiplier()
-    points = (new_steps // 100) * multiplier
-
-    # Log the new steps
-    log = StepLog(user_id=current_user.id, steps=new_steps, points=points)
-
-    # Update user stats
-    if hasattr(current_user, 'total_steps'):
-        current_user.total_steps += new_steps
-        current_user.total_points += points
-
-        # Update house points
-        house = House.query.filter_by(name=current_user.house).first()
-        if house:
-            house.total_points += points
-            if hasattr(house, 'total_steps'):
-                house.total_steps += new_steps
-
-        db.session.add(log)
-        db.session.commit()
-
-        multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-        log_activity(app, current_user.id, 'Google Fit Steps Logged', f'{new_steps} steps{multiplier_text}')
-        flash(f'Added {points} points to {current_user.house} house from Google Fit!{multiplier_text}', 'success')
-    else:
-        flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
-
-    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-        user_points = current_user.total_points
-        houses = House.query.order_by(House.total_points.desc()).all()
-        house_rankings = [
-            {
-                "name": house.name,
-                "total_points": house.total_points,
-                "total_steps": getattr(house, "total_steps", 0)
-            }
-            for house in houses
-        ]
-        return jsonify({
-            "steps": new_steps,
-            "points": points,
-            "user_points": user_points,
-            "house_rankings": house_rankings,
-            "error": None
-        })
-
-    return redirect(url_for('steps_dashboard'))
-
-@app.route('/unlink_google_fit', methods=['POST'])
-@login_required
-def unlink_google_fit():
-    # Remove the Google Fit token from the session
-    session.pop('google_fit_token', None)
-    flash("Google Fit account unlinked successfully.", "success")
-    return redirect(url_for('dashboard'))
-
 if __name__ == '__main__':
     # Initialize the admin user on startup
     with app.app_context():
@@ -1334,285 +1049,371 @@ if __name__ == '__main__':
     
     # Use debug mode from environment variable and set port to 5000
     debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
-    app.run(debug=debug_mode, port=5001, ssl_context=('certificates/cert.pem', 'certificates/key.pem'))
+    app.run(debug=debug_mode, port=5001)
 
-@app.route('/debug-cognito')
-def debug_cognito():
-    """Debug Cognito configuration"""
-    return f"""
-    <h1>Cognito Debug</h1>
-    <p><strong>Domain:</strong> {app.config.get('COGNITO_DOMAIN')}</p>
-    <p><strong>User Pool ID:</strong> {app.config.get('COGNITO_USER_POOL_ID')}</p>
-    <p><strong>Redirect URI:</strong> {app.config.get('COGNITO_REDIRECT_URI')}</p>
-    <p><strong>Login URL:</strong> {cognito_auth.get_login_url()}</p>
-    <p><a href="{cognito_auth.get_login_url()}">Test Login</a></p>
-    """
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    """Unified dashboard combining flights, steps, and standing activities"""
+    # Redirect admin to admin dashboard if they try to access this
+    if current_user.is_admin:
+        flash('Admin users should use the Admin Dashboard', 'info')
+        return redirect(url_for('admin_dashboard'))
+    
+    # Get house data for the leaderboard
+    houses = House.query.order_by(House.total_points.desc()).all()
+    
+    # Get recent logs for the current user
+    recent_climb_logs = ClimbLog.query.filter_by(user_id=current_user.id)\
+        .order_by(ClimbLog.timestamp.desc()).limit(3).all()
+    
+    recent_standing_logs = StandingLog.query.filter_by(user_id=current_user.id)\
+        .order_by(StandingLog.timestamp.desc()).limit(3).all()
+    
+    recent_steps_logs = StepLog.query.filter_by(user_id=current_user.id)\
+        .order_by(StepLog.timestamp.desc()).limit(3).all()
+    
+    # Combine all activities into a single timeline
+    all_activities = []
+    
+    # Add climb logs
+    for log in recent_climb_logs:
+        all_activities.append({
+            'type': 'climb',
+            'value': log.flights,
+            'points': log.points,
+            'timestamp': log.timestamp,
+            'formatted_timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M') if hasattr(log.timestamp, 'strftime') else str(log.timestamp)
+        })
+    
+    # Add standing logs
+    for log in recent_standing_logs:
+        all_activities.append({
+            'type': 'standing',
+            'value': log.minutes,
+            'points': log.points,
+            'timestamp': log.timestamp,
+            'formatted_timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M') if hasattr(log.timestamp, 'strftime') else str(log.timestamp)
+        })
+    
+    # Add steps logs
+    for log in recent_steps_logs:
+        all_activities.append({
+            'type': 'steps',
+            'value': log.steps,
+            'points': log.points,
+            'timestamp': log.timestamp,
+            'formatted_timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M') if hasattr(log.timestamp, 'strftime') else str(log.timestamp)
+        })
+    
+    # Sort all activities by timestamp (most recent first)
+    all_activities.sort(key=lambda x: x['timestamp'], reverse=True)
+    
+    return render_template('unified_dashboard.html',
+                           houses=houses,
+                           all_activities=all_activities,
+                           recent_climb_logs=recent_climb_logs,
+                           recent_standing_logs=recent_standing_logs,
+                           recent_steps_logs=recent_steps_logs)
 
-@app.route('/debug-redirect')
-def debug_redirect():
-    """Debug redirect settings"""
-    from flask import request
+@app.route('/analytics-dashboard')
+@login_required
+@admin_required
+def analytics_dashboard():
+    """Analytics dashboard for administrators"""
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        log_access_attempt(False, "Analytics Dashboard", "Non-admin access attempt")
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('dashboard'))
     
-    current_url = request.url
-    base_url = request.url_root.rstrip('/')
-    configured_redirect = app.config.get('COGNITO_REDIRECT_URI')
-    generated_redirect = url_for('auth_callback', _external=True)
+    houses = House.query.order_by(House.name).all()
     
-    return f"""
-    <h1>Redirect Debug</h1>
-    <p><strong>Current URL:</strong> {current_url}</p>
-    <p><strong>Base URL:</strong> {base_url}</p>
-    <p><strong>Configured Redirect:</strong> {configured_redirect}</p>
-    <p><strong>Generated Redirect:</strong> {generated_redirect}</p>
-    <hr>
-    <p>If these don't match, update your COGNITO_REDIRECT_URI in .env to: {generated_redirect}</p>
-    <p>Make sure to update the allowed callback URLs in AWS Cognito console too.</p>
-    """
-
-@app.route('/debug-token')
-def debug_token():
-    """Debug token exchange process"""
-    mock_code = "test_code"  # This won't actually work, just for debugging
+    # Get all logs for reference (if needed)
+    climb_logs = ClimbLog.query.order_by(ClimbLog.timestamp.desc()).limit(1000).all()
+    standing_logs = StandingLog.query.order_by(StandingLog.timestamp.desc()).limit(1000).all()
+    steps_logs = StepLog.query.order_by(StepLog.timestamp.desc()).limit(1000).all()
     
-    # Get the Cognito configuration
-    domain = app.config.get('COGNITO_DOMAIN')
-    client_id = app.config.get('COGNITO_CLIENT_ID')
-    client_secret = app.config.get('COGNITO_CLIENT_SECRET')
-    redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
+    # Prepare data for charts
+    house_names = [house.name for house in houses]
     
-    return f"""
-    <h1>Token Exchange Debug</h1>
-    <p><strong>Domain:</strong> {domain}</p>
-    <p><strong>Client ID:</strong> {client_id}</p>
-    <p><strong>Client Secret:</strong> {'*' * 8}</p>
-    <p><strong>Redirect URI:</strong> {redirect_uri}</p>
-    <p><strong>Token URL:</strong> https://{domain}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com/oauth2/token</p>
-    """
-
-@app.route('/auth-debug')
-def auth_debug():
-    code = request.args.get('code', 'No code')
-    state = request.args.get('state', 'No state')
-    error = request.args.get('error', 'No error')
-    error_description = request.args.get('error_description', 'No description')
+    # Define colors for each house
+    house_colors = {
+        'Black': 'rgba(51, 51, 51, 0.8)',
+        'Blue': 'rgba(0, 102, 204, 0.8)',
+        'Green': 'rgba(0, 153, 51, 0.8)',
+        'White': 'rgba(248, 249, 250, 0.8)',
+        'Gold': 'rgba(255, 204, 0, 0.8)',
+        'Purple': 'rgba(102, 0, 153, 0.8)'
+    }
     
-    token_debug = "No code to exchange"
-    raw_response = "None"
+    house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
     
-    if code != 'No code':
-        # Try to exchange the code for a token
-        try:
-            import requests
-            
-            token_url = f"https://{app.config.get('COGNITO_DOMAIN')}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com/oauth2/token"
-            
-            # Client credentials in the form data instead of Basic Auth
-            body = {
-                'grant_type': 'authorization_code',
-                'client_id': app.config.get('COGNITO_CLIENT_ID'),
-                'client_secret': app.config.get('COGNITO_CLIENT_SECRET'),
-                'code': code,
-                'redirect_uri': app.config.get('COGNITO_REDIRECT_URI')
-            }
-            
-            headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-            response = requests.post(token_url, data=body, headers=headers)
-            raw_response = response.text
-            token_debug = f"Status: {response.status_code}, Content: {raw_response[:100]}..."
-        except Exception as e:
-            token_debug = f"Error: {str(e)}"
+    # Prepare climbing data
+    climbing_data = {
+        'flights': [house.total_flights for house in houses],
+        'points': [house.total_flights * 10 for house in houses]
+    }
     
-    # Rest of the function remains the same
-    return f"""
-    <h1>Auth Debug (Improved)</h1>
-    <p><strong>Code:</strong> {code[:10]}...</p>
-    <p><strong>State:</strong> {state}</p>
-    <p><strong>Error:</strong> {error}</p>
-    <p><strong>Error Description:</strong> {error_description}</p>
-    <p><strong>Token Exchange:</strong> {token_debug}</p>
-    <p><strong>Raw Response:</strong> <pre>{raw_response}</pre></p>
-    <p><a href="/login">Try Login Again</a></p>
-    """
-
-@app.route('/cognito-test')
-def cognito_test():
-    """Test endpoint for Cognito token exchange"""
-    try:
-        # Generate a login URL for testing
-        login_url = cognito_auth.get_login_url("test-auth-flow")
-        
-        # Get and display current configuration
-        config = {
-            'domain': app.config.get('COGNITO_DOMAIN'),
-            'client_id': app.config.get('COGNITO_CLIENT_ID'),
-            'redirect_uri': app.config.get('COGNITO_REDIRECT_URI'),
-            'region': app.config.get('AWS_REGION'),
+    # Prepare standing data
+    standing_data = {
+        'minutes': [getattr(house, 'total_standing_time', 0) for house in houses],
+        'points': [getattr(house, 'total_standing_time', 0) for house in houses]
+    }
+    
+    # Prepare steps data
+    steps_data = {
+        'steps': [getattr(house, 'total_steps', 0) for house in houses],
+        'points': [getattr(house, 'total_steps', 0) // 100 for house in houses]
+    }
+    
+    # Prepare combined data
+    combined_data = {
+        'climbing_points': [house.total_flights * 10 for house in houses],
+        'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
+        'steps_points': [getattr(house, 'total_steps', 0) // 100 for house in houses],
+        'total_points': [house.total_points for house in houses]
+    }
+    
+    # Get activity by house
+    house_activity = {}
+    for house in houses:
+        house_activity[house.name] = {
+            'flights': house.total_flights,
+            'standing_time': house.total_standing_time,
+            'steps': house.total_steps if hasattr(house, 'total_steps') else 0,
+            'points': house.total_points,
+            'member_count': house.member_count
         }
-        
-        # Check if redirect URI matches current host
-        current_host = request.host_url.rstrip('/')
-        expected_callback = f"{current_host}/auth/callback"
-        redirect_match = app.config.get('COGNITO_REDIRECT_URI') == expected_callback
-        
-        return f"""
-        <h1>Cognito Authentication Test</h1>
-        <h2>Configuration</h2>
-        <ul>
-            <li><strong>Domain:</strong> {config['domain']}</li>
-            <li><strong>Client ID:</strong> {config['client_id']}</li>
-            <li><strong>Redirect URI:</strong> {config['redirect_uri']}</li>
-            <li><strong>Current Host:</strong> {current_host}</li>
-            <li><strong>Expected Callback:</strong> {expected_callback}</li>
-            <li><strong>Redirect Match:</strong> {'✅ Matches' if redirect_match else '❌ Mismatch! Update your .env file and AWS Console'}</li>
-        </ul>
-        <h2>Test Authentication</h2>
-        <p><a href="{login_url}" class="btn btn-primary">Test Cognito Login</a></p>
-        <h2>Troubleshooting</h2>
-        <ol>
-            <li>Make sure the allowed callback URL in AWS Console includes: {expected_callback}</li>
-            <li>Verify the app client settings match what's in your .env file</li>
-            <li>In AWS Console, check if the token endpoint auth is set to 'CLIENT_SECRET_POST'</li>
-        </ol>
-        """
-    except Exception as e:
-        return f"<h1>Error</h1><p>{str(e)}</p>"
+    log_access_attempt(True, "Analytics Dashboard", "Admin access successful")
+    return render_template('analytics_dashboard.html',
+                         houses=houses,
+                         house_names=house_names,
+                         house_colors=house_colors_list,
+                         climbing_data=climbing_data,
+                         standing_data=standing_data,
+                         steps_data=steps_data,
+                         combined_data=combined_data,
+                         climb_logs=climb_logs,
+                         standing_logs=standing_logs,
+                         steps_logs=steps_logs,
+                         house_activity=house_activity)
 
-@app.route('/token-debug')
-def token_debug():
-    """Detailed token debugging"""
-    code = request.args.get('code', '')
+# Google Fit Configuration
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI')
+GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.activity.read"
+
+@app.route('/get_google_fit_steps')
+@login_required
+def get_google_fit_steps():
+    access_token = session.get('google_fit_token')
+    if not access_token:
+        return jsonify({"error": "Google Fit not linked"}), 401
+
+    # Get today's start and end time in milliseconds
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    start_time_millis = int(start_of_day.timestamp() * 1000)
+    end_time_millis = int(end_of_day.timestamp() * 1000)
+
+    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "aggregateBy": [{
+            "dataTypeName": "com.google.step_count.delta",
+            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+        }],
+        "bucketByTime": { "durationMillis": 86400000 },
+        "startTimeMillis": start_time_millis,
+        "endTimeMillis": end_time_millis
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=body, timeout=10)
+        if r.status_code != 200:
+            app.logger.error(f"Google Fit API error: {r.status_code} - {r.text}")
+            return jsonify({"error": "Failed to fetch Google Fit data"}), 400
+
+        data = r.json()
+        total_steps_today = 0
+        buckets = data.get("bucket", [])
+        for bucket in buckets:
+            for dataset in bucket.get("dataset", []):
+                for point in dataset.get("point", []):
+                    for value in point.get("value", []):
+                        total_steps_today += value.get("intVal", 0)
+
+        return jsonify({"steps": total_steps_today})
+
+    except Exception as e:
+        app.logger.error(f"Error fetching Google Fit steps: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching steps"}), 500
     
+@app.route('/google_fit_auth')
+@login_required
+def google_fit_auth():
+    if not GOOGLE_CLIENT_ID or not GOOGLE_FIT_REDIRECT_URI:
+        flash("Google Fit is not configured. Please contact the administrator.", "danger")
+        return redirect(url_for('unified_dashboard'))
+
+    params = {
+        "response_type": "code",
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
+        "scope": GOOGLE_FIT_SCOPE,
+        "access_type": "offline",
+        "prompt": "consent"
+    }
+    auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+    return redirect(auth_url)
+
+@app.route('/google_fit_callback')
+@login_required
+def google_fit_callback():
+    code = request.args.get('code')
+    error = request.args.get('error')
+    if error:
+        flash(f"Google Fit authorization failed: {error}", "danger")
+        return redirect(url_for('unified_dashboard'))
     if not code:
-        return """
-        <h1>Token Exchange Debugger</h1>
-        <p>Add a 'code' parameter to test token exchange manually</p>
-        <p>Example: <code>/token-debug?code=your_code_here</code></p>
-        """
-    
-    # Try both auth methods
-    import requests
-    from urllib.parse import urlencode
-    from requests.auth import HTTPBasicAuth
-    
-    token_url = f"https://{app.config.get('COGNITO_DOMAIN')}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com/oauth2/token"
-    client_id = app.config.get('COGNITO_CLIENT_ID')
-    client_secret = app.config.get('COGNITO_CLIENT_SECRET')
-    redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
-    
-    # Method 1: CLIENT_SECRET_POST
-    headers1 = {'Content-Type': 'application/x-www-form-urlencoded'}
-    body1 = {
-        'grant_type': 'authorization_code',
-        'client_id': client_id,
-        'client_secret': client_secret,
-        'code': code,
-        'redirect_uri': redirect_uri
-    }
-    
-    # Method 2: CLIENT_SECRET_BASIC
-    headers2 = {'Content-Type': 'application/x-www-form-urlencoded'}
-    body2 = {
-        'grant_type': 'authorization_code',
-        'code': code,
-        'redirect_uri': redirect_uri
-    }
-    auth2 = HTTPBasicAuth(client_id, client_secret)
-    
-    try:
-        response1 = requests.post(token_url, headers=headers1, data=urlencode(body1))
-        response2 = requests.post(token_url, headers=headers2, data=urlencode(body2), auth=auth2)
-        
-        return f"""
-        <h1>Token Exchange Debugging</h1>
-        <h2>CLIENT_SECRET_POST Method</h2>
-        <p>Status: {response1.status_code}</p>
-        <pre>{response1.text}</pre>
-        
-        <h2>CLIENT_SECRET_BASIC Method</h2>
-        <p>Status: {response2.status_code}</p>
-        <pre>{response2.text}</pre>
-        """
-    except Exception as e:
-        return f"<h1>Error</h1><p>{str(e)}</p>"
+        flash("No authorization code received from Google.", "danger")
+        return redirect(url_for('unified_dashboard'))
 
-@app.route('/test-auth-flow')
-def test_auth_flow():
-    """Test the complete authentication flow"""
-    # Generate a random state value for CSRF protection
-    import secrets
-    state = secrets.token_hex(16)
+    # Exchange code for token
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
+        "grant_type": "authorization_code"
+    }
+    try:
+        r = requests.post(token_url, data=data, timeout=10)
+        if r.status_code != 200:
+            flash("Failed to get Google Fit token.", "danger")
+            return redirect(url_for('unified_dashboard'))
+        token_info = r.json()
+        access_token = token_info.get("access_token")
+        if not access_token:
+            flash("Failed to get Google Fit access token.", "danger")
+            return redirect(url_for('unified_dashboard'))
+        session['google_fit_token'] = access_token
+        flash("Google Fit account linked successfully!", "success")
+    except Exception as e:
+        flash("An error occurred while linking Google Fit.", "danger")
+    return redirect(url_for('unified_dashboard'))
+
+GARMIN_CLIENT_ID = os.getenv('GARMIN_CLIENT_ID')
+GARMIN_CLIENT_SECRET = os.getenv('GARMIN_CLIENT_SECRET')
+GARMIN_REDIRECT_URI = os.getenv('GARMIN_REDIRECT_URI')
+
+@app.route('/garmin_auth')
+@login_required
+def garmin_auth():
+    # Generate code_verifier and code_challenge
+    code_verifier = pkce.generate_code_verifier(length=128)
+    code_challenge = pkce.get_code_challenge(code_verifier)
+    session['garmin_code_verifier'] = code_verifier
+
+    params = {
+        "response_type": "code",
+        "client_id": GARMIN_CLIENT_ID,
+        "redirect_uri": GARMIN_REDIRECT_URI,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "state": secrets.token_urlsafe(16)
+    }
+    auth_url = "https://connect.garmin.com/oauth2Confirm?" + urlencode(params)
+    return redirect(auth_url)
+
+@app.route('/garmin_callback')
+@login_required
+def garmin_callback():
+    code = request.args.get('code')
+    error = request.args.get('error')
+    if error:
+        flash(f"Garmin authorization failed: {error}", "danger")
+        return redirect(url_for('unified_dashboard'))
+    if not code:
+        flash("No authorization code received from Garmin.", "danger")
+        return redirect(url_for('unified_dashboard'))
+
+    code_verifier = session.get('garmin_code_verifier')
+    if not code_verifier:
+        flash("Missing PKCE code verifier. Please try again.", "danger")
+        return redirect(url_for('unified_dashboard'))
+
+    token_url = "https://connectapi.garmin.com/di-oauth2-service/oauth/token"
+    data = {
+        "grant_type": "authorization_code",
+        "client_id": GARMIN_CLIENT_ID,
+        "client_secret": GARMIN_CLIENT_SECRET,
+        "code": code,
+        "code_verifier": code_verifier,
+        "redirect_uri": GARMIN_REDIRECT_URI
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    try:
+        r = requests.post(token_url, data=data, headers=headers, timeout=10)
+        if r.status_code != 200:
+            flash("Failed to get Garmin access token.", "danger")
+            return redirect(url_for('unified_dashboard'))
+        token_info = r.json()
+        session['garmin_access_token'] = token_info.get("access_token")
+        session['garmin_refresh_token'] = token_info.get("refresh_token")
+        flash("Garmin account linked successfully!", "success")
+    except Exception as e:
+        flash("An error occurred while linking Garmin.", "danger")
+    return redirect(url_for('unified_dashboard'))
+
     
-    # Store the state in the session
-    session['oauth_state'] = state
+@app.route('/get_garmin_steps')
+@login_required
+def get_garmin_steps():
+    access_token = session.get('garmin_access_token')
+    if not access_token:
+        return jsonify({"error": "Garmin not linked"}), 401
+
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    # Use seconds, not milliseconds!
+    start_time_seconds = int(start_of_day.timestamp())
+    end_time_seconds = int(end_of_day.timestamp())
+
+    url = f'https://apis.garmin.com/wellness-api/rest/dailies?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        #app.logger.info(f"Garmin API status: {r.status_code}, response: {r.text}")
+        if r.status_code != 200:
+            return jsonify({"error": "Failed to fetch Garmin data"}), 400
+        data = r.json()
+        steps = data[0].get('steps', 0) if data else 0
+        stairs = data[0].get('floorsClimbed', 0) if data else 0
+        return jsonify({"steps": steps, "stairs": stairs})
+    except Exception as e:
+        app.logger.error(f"Garmin fetch error: {e}")
+        return jsonify({"error": "An error occurred while fetching Garmin data"}), 500
+        
     
-    # Generate login URL with the state parameter
-    login_url = cognito_auth.get_login_url(state)
-    
-    # Display information about the flow
-    return f"""
-    <h1>AWS Cognito Authentication Flow Test</h1>
-    <p>This will test the complete authentication flow with a fresh authorization code.</p>
-    <p><strong>Steps:</strong></p>
-    <ol>
-        <li>Click the "Start Authentication" button below</li>
-        <li>Log in or sign up with AWS Cognito</li>
-        <li>You'll be redirected back to the callback URL</li>
-        <li>The code will be automatically exchanged for tokens</li>
-    </ol>
-    <p><a href="{login_url}" class="btn btn-primary">Start Authentication</a></p>
-    """
-@app.route('/domain-debug')
-def domain_debug():
-    """Test different domain formats for Cognito"""
-    # Current domain from config
-    current_domain = app.config.get('COGNITO_DOMAIN')
-    
-    # Extract parts for testing different combinations
-    parts = current_domain.split('-')
-    if len(parts) > 2 and parts[0] == 'us' and parts[1] == 'east':
-        region_prefix = f"{parts[0]}-{parts[1]}-"
-        domain_suffix = parts[2]
-    else:
-        region_prefix = ""
-        domain_suffix = current_domain
-    
-    # Generate test URLs with different domain formats
-    test_urls = [
-        {
-            "name": "Current Configuration", 
-            "url": f"https://{current_domain}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com"
-        },
-        {
-            "name": "Without Region in Domain", 
-            "url": f"https://{domain_suffix}.auth.{app.config.get('AWS_REGION')}.amazoncognito.com"
-        },
-        {
-            "name": "Domain-Only", 
-            "url": f"https://{domain_suffix}.auth.amazoncognito.com"
-        }
-    ]
-    
-    # Generate HTML for testing each URL
-    url_tests = ""
-    for test in test_urls:
-        url_tests += f"""
-        <div class="mb-3">
-            <h3>{test["name"]}</h3>
-            <p><code>{test["url"]}</code></p>
-            <a href="{test["url"]}" target="_blank" class="btn btn-sm btn-primary">Test URL</a>
-        </div>
-        """
-    
-    return f"""
-    <h1>Cognito Domain Debugging</h1>
-    <p>Testing different domain formats to find the correct one.</p>
-    <p><strong>Current domain from config:</strong> {current_domain}</p>
-    {url_tests}
-    <hr>
-    <h3>Instructions:</h3>
-    <ol>
-        <li>Make sure the allowed callback URL in AWS Console includes: {expected_callback}</li>
-        <li>Verify the app client settings match what's in your .env file</li>
-        <li>In AWS Console, check if the token endpoint auth is set to 'CLIENT_SECRET_POST'</li>
-    </ol>
-    """
+@app.route('/unified_dashboard')
+@login_required
+def unified_dashboard():
+    houses = House.query.order_by(House.total_points.desc()).all()
+    # Add any other variables your template needs
+    return render_template('unified_dashboard.html', houses=houses, current_user=current_user)
