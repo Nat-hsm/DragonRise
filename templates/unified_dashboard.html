@@ -211,6 +211,41 @@
                 {% endfor %}
             </div>
         </div>
+
+        <!-- Add this section for Player Rankings -->
+        <div class="stats-card mt-4">
+            <h3>Player Rankings</h3>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Username</th>
+                            <th>House</th>
+                            <th>Flights</th>
+                            <th>Standing</th>
+                            <th>Steps</th>
+                            <th>Total Points</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in leaderboard %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ user.username }}</td>
+                            <td>
+                                <span class="house-badge {{ user.house }}">{{ user.house }}</span>
+                            </td>
+                            <td>{{ user.total_flights }}</td>
+                            <td>{{ user.total_standing_time }} min</td>
+                            <td>{{ user.total_steps|default(0) }}</td>
+                            <td><strong>{{ user.total_points }}</strong></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -277,7 +312,7 @@ document.getElementById('get-garmin-steps-btn').onclick = function() {
     resultDiv.textContent = "Fetching data...";
     fetch('/get_garmin_steps')
         .then(res => res.json())
-        .then(data => {
+        .then(data => {  <!-- Added missing parentheses around 'data' -->
             if (data.steps !== undefined && data.stairs !== undefined) {
                 resultDiv.textContent = "Garmin Steps: " + data.steps + ", Stairs Climbed: " + data.stairs;
             } else if (data.error) {

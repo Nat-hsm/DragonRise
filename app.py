@@ -1063,6 +1063,9 @@ def dashboard():
     # Get house data for the leaderboard
     houses = House.query.order_by(House.total_points.desc()).all()
     
+    # Get player leaderboard data
+    leaderboard = get_leaderboard(limit=10)  # Get top 10 users
+    
     # Get recent logs for the current user
     recent_climb_logs = ClimbLog.query.filter_by(user_id=current_user.id)\
         .order_by(ClimbLog.timestamp.desc()).limit(3).all()
@@ -1114,7 +1117,8 @@ def dashboard():
                            all_activities=all_activities,
                            recent_climb_logs=recent_climb_logs,
                            recent_standing_logs=recent_standing_logs,
-                           recent_steps_logs=recent_steps_logs)
+                           recent_steps_logs=recent_steps_logs,
+                           leaderboard=leaderboard)  # Add leaderboard data
 
 @app.route('/analytics-dashboard')
 @login_required

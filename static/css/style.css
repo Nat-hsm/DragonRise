@@ -103,7 +103,7 @@ body {
 
 /* House Rankings Card */
 .house-rankings-card {
-    height: calc(100% - 40px); /* Adjust for the margin-bottom of stats-card */
+   /* height: calc(100% - 40px); /* Adjust for the margin-bottom of stats-card */
     display: flex;
     flex-direction: column;
 }
