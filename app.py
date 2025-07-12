@@ -22,6 +22,12 @@ from extensions import db, login_manager, migrate, cognito_auth
 from authlib.integrations.flask_client import OAuth
 from urllib.parse import urlencode
 
+# For Google Fit Integration and Garmin API
+import requests
+import base64
+import hashlib
+import pkce  # pip install pkce
+
 # Load environment variables
 load_dotenv()
 
@@ -497,33 +503,40 @@ def delete_user():
 @login_required
 @admin_required
 def reset_user_points():
-    user_id = request.form.get('user_id')
-    user = User.query.get_or_404(user_id)
+    try:
+        user_id = request.form.get('user_id')
+        if not user_id:
+            flash('User ID is required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        user = User.query.get_or_404(int(user_id))
+        if user.is_admin:
+            flash('Cannot reset points for admin user', 'danger')
+            return redirect(url_for('admin_dashboard'))
 
-    # Remove or comment out this block if you want to allow admin reset:
-    # if user.is_admin:
-    #     flash('Cannot reset points for admin user.', 'danger')
-    #     return redirect(url_for('admin_dashboard'))
+        # Update house totals
+        house = House.query.filter_by(name=user.house).first()
+        if house:
+            house.total_points -= user.total_points
+            house.total_flights -= user.total_flights
+            if hasattr(house, 'total_standing_time'):
+                house.total_standing_time -= user.total_standing_time
+            if hasattr(house, 'total_steps') and hasattr(user, 'total_steps'):
+                house.total_steps -= user.total_steps
 
-    # Find the user's house
-    house = House.query.filter_by(name=user.house).first()
-    if house:
-        house.total_points -= user.total_points
-        house.total_flights -= user.total_flights
-        if hasattr(house, 'total_standing_time'):
-            house.total_standing_time -= user.total_standing_time
-        if hasattr(house, 'total_steps') and hasattr(user, 'total_steps'):
-            house.total_steps -= user.total_steps
+        # Reset user stats
+        user.total_points = 0
+        user.total_flights = 0
+        user.total_standing_time = 0
+        if hasattr(user, 'total_steps'):
+            user.total_steps = 0
 
-    # Reset user stats
-    user.total_points = 0
-    user.total_flights = 0
-    user.total_standing_time = 0
-    if hasattr(user, 'total_steps'):
-        user.total_steps = 0
-
-    db.session.commit()
-    flash(f'Points for user {user.username} have been reset.', 'success')
+        db.session.commit()
+        log_activity(app, current_user.id, 'User Points Reset', f'User {user.username} points reset')
+        flash(f'Points for user {user.username} have been reset.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error resetting user points: {str(e)}")
+        flash('An error occurred while resetting user points', 'danger')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin-dashboard/reset-house', methods=['POST'])
@@ -1164,8 +1177,12 @@ def dashboard():
     # Sort all activities by timestamp (most recent first)
     all_activities.sort(key=lambda x: x['timestamp'], reverse=True)
     
+    # Force reload user from DB
+    user = User.query.get(current_user.id)
+    # Use 'user' instead of 'current_user' in the template context
     return render_template('unified_dashboard.html',
                            houses=houses,
+                           user=user,
                            all_activities=all_activities,
                            recent_climb_logs=recent_climb_logs,
                            recent_standing_logs=recent_standing_logs,
@@ -1254,3 +1271,221 @@ def analytics_dashboard():
                          steps_logs=steps_logs,
                          house_activity=house_activity)
 
+# Google Fit Configuration
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI')
+GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.activity.read"
+
+@app.route('/get_google_fit_steps')
+@login_required
+def get_google_fit_steps():
+    access_token = session.get('google_fit_token')
+    if not access_token:
+        return jsonify({"error": "Google Fit not linked"}), 401
+
+    # Get today's start and end time in milliseconds
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    start_time_millis = int(start_of_day.timestamp() * 1000)
+    end_time_millis = int(end_of_day.timestamp() * 1000)
+
+    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "aggregateBy": [{
+            "dataTypeName": "com.google.step_count.delta",
+            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+        }],
+        "bucketByTime": { "durationMillis": 86400000 },
+        "startTimeMillis": start_time_millis,
+        "endTimeMillis": end_time_millis
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=body, timeout=10)
+        if r.status_code != 200:
+            app.logger.error(f"Google Fit API error: {r.status_code} - {r.text}")
+            return jsonify({"error": "Failed to fetch Google Fit data"}), 400
+
+        data = r.json()
+        total_steps_today = 0
+        buckets = data.get("bucket", [])
+        for bucket in buckets:
+            for dataset in bucket.get("dataset", []):
+                for point in dataset.get("point", []):
+                    for value in point.get("value", []):
+                        total_steps_today += value.get("intVal", 0)
+
+        return jsonify({"steps": total_steps_today})
+
+    except Exception as e:
+        app.logger.error(f"Error fetching Google Fit steps: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching steps"}), 500
+    
+@app.route('/google_fit_auth')
+@login_required
+def google_fit_auth():
+    if not GOOGLE_CLIENT_ID or not GOOGLE_FIT_REDIRECT_URI:
+        flash("Google Fit is not configured. Please contact the administrator.", "danger")
+        return redirect(url_for('unified_dashboard'))
+
+    params = {
+        "response_type": "code",
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
+        "scope": GOOGLE_FIT_SCOPE,
+        "access_type": "offline",
+        "prompt": "consent"
+    }
+    auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+    return redirect(auth_url)
+
+@app.route('/google_fit_callback')
+@login_required
+def google_fit_callback():
+    code = request.args.get('code')
+    error = request.args.get('error')
+    if error:
+        flash(f"Google Fit authorization failed: {error}", "danger")
+        return redirect(url_for('unified_dashboard'))
+    if not code:
+        flash("No authorization code received from Google.", "danger")
+        return redirect(url_for('unified_dashboard'))
+
+    # Exchange code for token
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
+        "grant_type": "authorization_code"
+    }
+    try:
+        r = requests.post(token_url, data=data, timeout=10)
+        if r.status_code != 200:
+            flash("Failed to get Google Fit token.", "danger")
+            return redirect(url_for('unified_dashboard'))
+        token_info = r.json()
+        access_token = token_info.get("access_token")
+        if not access_token:
+            flash("Failed to get Google Fit access token.", "danger")
+            return redirect(url_for('unified_dashboard'))
+        session['google_fit_token'] = access_token
+        flash("Google Fit account linked successfully!", "success")
+    except Exception as e:
+        flash("An error occurred while linking Google Fit.", "danger")
+    return redirect(url_for('unified_dashboard'))
+
+GARMIN_CLIENT_ID = os.getenv('GARMIN_CLIENT_ID')
+GARMIN_CLIENT_SECRET = os.getenv('GARMIN_CLIENT_SECRET')
+GARMIN_REDIRECT_URI = os.getenv('GARMIN_REDIRECT_URI')
+
+@app.route('/garmin_auth')
+@login_required
+def garmin_auth():
+    # Generate code_verifier and code_challenge
+    code_verifier = pkce.generate_code_verifier(length=128)
+    code_challenge = pkce.get_code_challenge(code_verifier)
+    session['garmin_code_verifier'] = code_verifier
+
+    params = {
+        "response_type": "code",
+        "client_id": GARMIN_CLIENT_ID,
+        "redirect_uri": GARMIN_REDIRECT_URI,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "state": secrets.token_urlsafe(16)
+    }
+    auth_url = "https://connect.garmin.com/oauth2Confirm?" + urlencode(params)
+    return redirect(auth_url)
+
+@app.route('/garmin_callback')
+@login_required
+def garmin_callback():
+    code = request.args.get('code')
+    error = request.args.get('error')
+    if error:
+        flash(f"Garmin authorization failed: {error}", "danger")
+        return redirect(url_for('unified_dashboard'))
+    if not code:
+        flash("No authorization code received from Garmin.", "danger")
+        return redirect(url_for('unified_dashboard'))
+
+    code_verifier = session.get('garmin_code_verifier')
+    if not code_verifier:
+        flash("Missing PKCE code verifier. Please try again.", "danger")
+        return redirect(url_for('unified_dashboard'))
+
+    token_url = "https://connectapi.garmin.com/di-oauth2-service/oauth/token"
+    data = {
+        "grant_type": "authorization_code",
+        "client_id": GARMIN_CLIENT_ID,
+        "client_secret": GARMIN_CLIENT_SECRET,
+        "code": code,
+        "code_verifier": code_verifier,
+        "redirect_uri": GARMIN_REDIRECT_URI
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    try:
+        r = requests.post(token_url, data=data, headers=headers, timeout=10)
+        if r.status_code != 200:
+            flash("Failed to get Garmin access token.", "danger")
+            return redirect(url_for('unified_dashboard'))
+        token_info = r.json()
+        session['garmin_access_token'] = token_info.get("access_token")
+        session['garmin_refresh_token'] = token_info.get("refresh_token")
+        flash("Garmin account linked successfully!", "success")
+    except Exception as e:
+        flash("An error occurred while linking Garmin.", "danger")
+    return redirect(url_for('unified_dashboard'))
+
+    
+@app.route('/get_garmin_steps')
+@login_required
+def get_garmin_steps():
+    access_token = session.get('garmin_access_token')
+    if not access_token:
+        return jsonify({"error": "Garmin not linked"}), 401
+
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    # Use seconds, not milliseconds!
+    start_time_seconds = int(start_of_day.timestamp())
+    end_time_seconds = int(end_of_day.timestamp())
+
+    url = f'https://apis.garmin.com/wellness-api/rest/dailies?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        #app.logger.info(f"Garmin API status: {r.status_code}, response: {r.text}")
+        if r.status_code != 200:
+            return jsonify({"error": "Failed to fetch Garmin data"}), 400
+        data = r.json()
+        steps = data[0].get('steps', 0) if data else 0
+        stairs = data[0].get('floorsClimbed', 0) if data else 0
+        return jsonify({"steps": steps, "stairs": stairs})
+    except Exception as e:
+        app.logger.error(f"Garmin fetch error: {e}")
+        return jsonify({"error": "An error occurred while fetching Garmin data"}), 500
+        
+    
+@app.route('/unified_dashboard')
+@login_required
+def unified_dashboard():
+    houses = House.query.order_by(House.total_points.desc()).all()
+    # Add any other variables your template needs
+    return render_template('unified_dashboard.html', houses=houses, current_user=current_user)
