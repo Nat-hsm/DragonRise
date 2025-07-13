@@ -734,32 +734,50 @@ def upload_screenshot():
                     flash('Invalid number of flights detected in the screenshot', 'danger')
                     return redirect(url_for('dashboard'))
                     
-                timestamp_str = result.get('timestamp')
+                # Get today's date
+                today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                tomorrow = today + timedelta(days=1)
+                
+                # Find the most recent climb log for today
+                latest_log = ClimbLog.query.filter(
+                    ClimbLog.user_id == current_user.id,
+                    ClimbLog.timestamp >= today,
+                    ClimbLog.timestamp < tomorrow
+                ).order_by(ClimbLog.flights.desc()).first()
+                
+                # Calculate incremental flights to avoid double counting
+                existing_flights = latest_log.flights if latest_log else 0
+                
+                if flights <= existing_flights:
+                    flash('No new flights detected. Your current recorded flights for today is already higher.', 'warning')
+                    return redirect(url_for('dashboard'))
+                
+                incremental_flights = flights - existing_flights
                 
                 # Check if it's peak hour for multiplier
                 multiplier = get_points_multiplier()
-                points = flights * 10 * multiplier
+                points = incremental_flights * 10 * multiplier
                 
                 # Log the climb
                 log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
                 
-                # Update user stats
-                current_user.total_flights += flights
+                # Update user stats with only the incremental flights
+                current_user.total_flights += incremental_flights
                 current_user.total_points += points
                 
-                # Update house points
+                # Update house points with only the incremental flights
                 house = House.query.filter_by(name=current_user.house).first()
                 if house:
                     house.total_points += points
-                    house.total_flights += flights
+                    house.total_flights += incremental_flights
                 
                 db.session.add(log)
                 db.session.commit()
                 
                 # Add multiplier info to the message if applicable
                 multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{flights} flights{multiplier_text}')
-                flash(f'Successfully processed screenshot! Added {points} points for {flights} flights.{multiplier_text}', 'success')
+                log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{incremental_flights} new flights{multiplier_text}')
+                flash(f'Successfully processed screenshot! Added {points} points for {incremental_flights} new flights.{multiplier_text}', 'success')
             else:
                 flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
         else:
@@ -780,14 +798,14 @@ def upload_standing_screenshot():
         # Check if a file was uploaded
         if 'screenshot' not in request.files:
             flash('No file selected', 'danger')
-            return redirect(url_for('standing_dashboard'))
+            return redirect(url_for('dashboard'))
             
         file = request.files['screenshot']
         
         # Check if filename is empty
         if file.filename == '':
             flash('No file selected', 'danger')
-            return redirect(url_for('standing_dashboard'))
+            return redirect(url_for('dashboard'))
             
         if file and allowed_file(file.filename):
             # Create uploads directory if it doesn't exist
@@ -808,31 +826,51 @@ def upload_standing_screenshot():
             if result.get('success'):
                 minutes = result.get('minutes', 0)
                 
+                # Get today's date
+                today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                tomorrow = today + timedelta(days=1)
+                
+                # Find the most recent standing log for today
+                latest_log = StandingLog.query.filter(
+                    StandingLog.user_id == current_user.id,
+                    StandingLog.timestamp >= today,
+                    StandingLog.timestamp < tomorrow
+                ).order_by(StandingLog.minutes.desc()).first()
+                
+                # Calculate incremental minutes to avoid double counting
+                existing_minutes = latest_log.minutes if latest_log else 0
+                
+                if minutes <= existing_minutes:
+                    flash('No new standing time detected. Your current recorded minutes for today is already higher.', 'warning')
+                    return redirect(url_for('dashboard'))
+                
+                incremental_minutes = minutes - existing_minutes
+                
                 # Check if it's peak hour for multiplier
                 multiplier = get_points_multiplier()
-                points = minutes * multiplier
+                points = incremental_minutes * multiplier
                 
                 # Log the standing time
                 log = StandingLog(user_id=current_user.id, minutes=minutes, points=points)
                 
-                # Update user stats
-                current_user.total_standing_time += minutes
+                # Update user stats with only the incremental minutes
+                current_user.total_standing_time += incremental_minutes
                 current_user.total_points += points
                 
-                # Update house points
+                # Update house points with only the incremental minutes
                 house = House.query.filter_by(name=current_user.house).first()
                 if house:
                     house.total_points += points
                     if hasattr(house, 'total_standing_time'):
-                        house.total_standing_time += minutes
+                        house.total_standing_time += incremental_minutes
                 
                 db.session.add(log)
                 db.session.commit()
                 
                 # Add multiplier info to the message if applicable
                 multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{minutes} minutes{multiplier_text}')
-                flash(f'Successfully processed screenshot! Added {points} points for {minutes} minutes of standing time.{multiplier_text}', 'success')
+                log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{incremental_minutes} new minutes{multiplier_text}')
+                flash(f'Successfully processed screenshot! Added {points} points for {incremental_minutes} new minutes of standing time.{multiplier_text}', 'success')
             else:
                 flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
         else:
@@ -845,20 +883,20 @@ def upload_standing_screenshot():
 
 @app.route('/upload-steps-screenshot', methods=['POST'])
 @login_required
-@limiter.limit("1000 per minute")  # Added rate limiting
+@limiter.limit("1000 per minute")
 def upload_steps_screenshot():
     try:
         # Check if a file was uploaded
         if 'screenshot' not in request.files:
             flash('No file selected', 'danger')
-            return redirect(url_for('steps_dashboard'))
+            return redirect(url_for('dashboard'))
             
         file = request.files['screenshot']
         
         # Check if filename is empty
         if file.filename == '':
             flash('No file selected', 'danger')
-            return redirect(url_for('steps_dashboard'))
+            return redirect(url_for('dashboard'))
             
         if file and allowed_file(file.filename):
             # Create uploads directory if it doesn't exist
@@ -880,15 +918,35 @@ def upload_steps_screenshot():
                 steps = result.get('steps', 0)
                 
                 if hasattr(current_user, 'total_steps'):
+                    # Get today's date
+                    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                    tomorrow = today + timedelta(days=1)
+                    
+                    # Find the most recent step log for today
+                    latest_log = StepLog.query.filter(
+                        StepLog.user_id == current_user.id,
+                        StepLog.timestamp >= today,
+                        StepLog.timestamp < tomorrow
+                    ).order_by(StepLog.steps.desc()).first()
+                    
+                    # Calculate incremental steps to avoid double counting
+                    existing_steps = latest_log.steps if latest_log else 0
+                    
+                    if steps <= existing_steps:
+                        flash('No new steps detected. Your current recorded steps for today is already higher.', 'warning')
+                        return redirect(url_for('dashboard'))
+                    
+                    incremental_steps = steps - existing_steps
+                    
                     # Check if it's peak hour for multiplier
                     multiplier = get_points_multiplier()
-                    points = (steps // 100) * multiplier
+                    points = (incremental_steps // 100) * multiplier
                     
                     # Log the steps
                     log = StepLog(user_id=current_user.id, steps=steps, points=points)
                     
                     # Update user stats
-                    current_user.total_steps += steps
+                    current_user.total_steps += incremental_steps
                     current_user.total_points += points
                     
                     # Update house points
@@ -896,15 +954,15 @@ def upload_steps_screenshot():
                     if house:
                         house.total_points += points
                         if hasattr(house, 'total_steps'):
-                            house.total_steps += steps
+                            house.total_steps += incremental_steps
                     
                     db.session.add(log)
                     db.session.commit()
                     
                     # Add multiplier info to the message if applicable
                     multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                    log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{steps} steps{multiplier_text}')
-                    flash(f'Successfully processed screenshot! Added {points} points for {steps} steps.{multiplier_text}', 'success')
+                    log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{incremental_steps} new steps{multiplier_text}')
+                    flash(f'Successfully processed screenshot! Added {points} points for {incremental_steps} new steps.{multiplier_text}', 'success')
                 else:
                     flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
             else:
@@ -1063,6 +1121,9 @@ def dashboard():
     # Get house data for the leaderboard
     houses = House.query.order_by(House.total_points.desc()).all()
     
+    # Get player leaderboard data
+    leaderboard = get_leaderboard(limit=10)  # Get top 10 users
+    
     # Get recent logs for the current user
     recent_climb_logs = ClimbLog.query.filter_by(user_id=current_user.id)\
         .order_by(ClimbLog.timestamp.desc()).limit(3).all()
@@ -1114,7 +1175,8 @@ def dashboard():
                            all_activities=all_activities,
                            recent_climb_logs=recent_climb_logs,
                            recent_standing_logs=recent_standing_logs,
-                           recent_steps_logs=recent_steps_logs)
+                           recent_steps_logs=recent_steps_logs,
+                           leaderboard=leaderboard)  # Add leaderboard data
 
 @app.route('/analytics-dashboard')
 @login_required
@@ -1417,3 +1479,239 @@ def unified_dashboard():
     houses = House.query.order_by(House.total_points.desc()).all()
     # Add any other variables your template needs
     return render_template('unified_dashboard.html', houses=houses, current_user=current_user)
+
+@app.route('/log_google_fit_steps', methods=['POST'])
+@login_required
+def log_google_fit_steps():
+    access_token = session.get('google_fit_token')
+    if not access_token:
+        return jsonify({"success": False, "error": "Google Fit not linked"}), 401
+
+    # Get today's start and end time in milliseconds
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    start_time_millis = int(start_of_day.timestamp() * 1000)
+    end_time_millis = int(end_of_day.timestamp() * 1000)
+
+    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "aggregateBy": [{
+            "dataTypeName": "com.google.step_count.delta",
+            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+        }],
+        "bucketByTime": { "durationMillis": 86400000 },
+        "startTimeMillis": start_time_millis,
+        "endTimeMillis": end_time_millis
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=body, timeout=10)
+        if r.status_code != 200:
+            app.logger.error(f"Google Fit API error: {r.status_code} - {r.text}")
+            return jsonify({"success": False, "error": "Failed to fetch Google Fit data"}), 400
+
+        data = r.json()
+        total_steps_today = 0
+        buckets = data.get("bucket", [])
+        for bucket in buckets:
+            for dataset in bucket.get("dataset", []):
+                for point in dataset.get("point", []):
+                    for value in point.get("value", []):
+                        total_steps_today += value.get("intVal", 0)
+
+        # Get today's existing steps
+        today_start = start_of_day.replace(tzinfo=timezone.utc)
+        today_end = end_of_day.replace(tzinfo=timezone.utc)
+        
+        # Find the user's most recent log for today
+        latest_log = StepLog.query.filter(
+            StepLog.user_id == current_user.id,
+            StepLog.timestamp >= today_start,
+            StepLog.timestamp < today_end
+        ).order_by(StepLog.steps.desc()).first()
+        
+        # Calculate incremental steps (avoid double counting)
+        existing_steps = latest_log.steps if latest_log else 0
+        incremental_steps = max(0, total_steps_today - existing_steps)
+        
+        if incremental_steps > 0:
+            # Calculate points (1 point per 100 steps)
+            multiplier = get_points_multiplier()
+            points = (incremental_steps // 100) * multiplier
+            
+            # Create step log
+            log = StepLog(
+                user_id=current_user.id, 
+                steps=total_steps_today, 
+                points=points,
+                notes="Google Fit Integration"
+            )
+            
+            # Update user stats
+            if hasattr(current_user, 'total_steps'):
+                current_user.total_steps += incremental_steps
+                current_user.total_points += points
+
+                # Update house points
+                house = House.query.filter_by(name=current_user.house).first()
+                if house:
+                    house.total_points += points
+                    if hasattr(house, 'total_steps'):
+                        house.total_steps += incremental_steps
+
+                db.session.add(log)
+                db.session.commit()
+                
+                # Add multiplier info to the message if applicable
+                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+                log_activity(app, current_user.id, 'Google Fit Steps Logged', f'{incremental_steps} steps{multiplier_text}')
+                
+                return jsonify({
+                    "success": True, 
+                    "steps": total_steps_today,
+                    "incremental_steps": incremental_steps,
+                    "points": points
+                })
+            else:
+                return jsonify({"success": False, "error": "Steps tracking not available"}), 400
+        else:
+            return jsonify({"success": True, "message": "No new steps to log"})
+
+    except Exception as e:
+        app.logger.error(f"Error logging Google Fit steps: {str(e)}")
+        return jsonify({"success": False, "error": "An error occurred while processing steps"}), 500
+
+@app.route('/log_garmin_data', methods=['POST'])
+@login_required
+def log_garmin_data():
+    access_token = session.get('garmin_access_token')
+    if not access_token:
+        return jsonify({"success": False, "error": "Garmin not linked"}), 401
+
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    # Use seconds, not milliseconds!
+    start_time_seconds = int(start_of_day.timestamp())
+    end_time_seconds = int(end_of_day.timestamp())
+
+    url = f'https://apis.garmin.com/wellness-api/rest/dailies?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            flash("Failed to get Garmin data.", "danger")
+            return redirect(url_for('unified_dashboard'))
+        
+        data = r.json()
+        steps = data[0].get('steps', 0) if data else 0
+        stairs = data[0].get('floorsClimbed', 0) if data else 0
+        
+        today_start = start_of_day.replace(tzinfo=timezone.utc)
+        today_end = end_of_day.replace(tzinfo=timezone.utc)
+        
+        # Process steps - find today's logs
+        latest_steps_log = StepLog.query.filter(
+            StepLog.user_id == current_user.id,
+            StepLog.timestamp >= today_start,
+            StepLog.timestamp < today_end
+        ).order_by(StepLog.steps.desc()).first()
+        
+        # Process flights - find today's logs
+        latest_flights_log = ClimbLog.query.filter(
+            ClimbLog.user_id == current_user.id,
+            ClimbLog.timestamp >= today_start,
+            ClimbLog.timestamp < today_end
+        ).order_by(ClimbLog.flights.desc()).first()
+        
+        # Calculate incremental steps and flights
+        existing_steps = latest_steps_log.steps if latest_steps_log else 0
+        existing_flights = latest_flights_log.flights if latest_flights_log else 0
+        
+        incremental_steps = max(0, steps - existing_steps)
+        incremental_flights = max(0, stairs - existing_flights)
+        
+        multiplier = get_points_multiplier()
+        total_points = 0
+        
+        # Log steps if there are incremental steps
+        if incremental_steps > 0 and hasattr(current_user, 'total_steps'):
+            steps_points = (incremental_steps // 100) * multiplier
+            steps_log = StepLog(
+                user_id=current_user.id,
+                steps=steps,
+                points=steps_points,
+                notes="Garmin Connect Integration"
+            )
+            
+            current_user.total_steps += incremental_steps
+            current_user.total_points += steps_points
+            
+            house = House.query.filter_by(name=current_user.house).first()
+            if house:
+                house.total_points += steps_points
+                if hasattr(house, 'total_steps'):
+                    house.total_steps += incremental_steps
+            
+            db.session.add(steps_log)
+            total_points += steps_points
+            
+            # Log activity
+            multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+            log_activity(app, current_user.id, 'Garmin Steps Logged', f'{incremental_steps} steps{multiplier_text}')
+        
+        # Log flights if there are incremental flights
+        if incremental_flights > 0:
+            flights_points = incremental_flights * 10 * multiplier
+            flights_log = ClimbLog(
+                user_id=current_user.id,
+                flights=stairs,
+                points=flights_points,
+                notes="Garmin Connect Integration"
+            )
+            
+            current_user.total_flights += incremental_flights
+            current_user.total_points += flights_points
+            
+            house = House.query.filter_by(name=current_user.house).first()
+            if house:
+                house.total_points += flights_points
+                house.total_flights += incremental_flights
+            
+            db.session.add(flights_log)
+            total_points += flights_points
+            
+            # Log activity
+            multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
+            log_activity(app, current_user.id, 'Garmin Stairs Logged', f'{incremental_flights} flights{multiplier_text}')
+        
+        # Commit if any changes were made
+        if incremental_steps > 0 or incremental_flights > 0:
+            db.session.commit()
+            
+            return jsonify({
+                "success": True,
+                "steps": steps,
+                "incremental_steps": incremental_steps,
+                "stairs": stairs,
+                "incremental_stairs": incremental_flights,
+                "points": total_points
+            })
+        else:
+            return jsonify({"success": True, "message": "No new activity to log"})
+            
+    except Exception as e:
+        app.logger.error(f"Error logging Garmin data: {str(e)}")
+        return jsonify({"success": False, "error": "An error occurred while processing data"}), 500
