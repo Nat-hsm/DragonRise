@@ -5,26 +5,59 @@
         <div class="stats-card">
             <h2>Welcome, {{ current_user.username }}</h2>
             <p class="text-muted">{{ current_user.house }} House Member</p>
+            
+            {% if active_event %}
+            <div class="alert alert-info">
+                <i class="fas fa-trophy"></i> Active Event: <strong>{{ active_event.name }}</strong> 
+                ({{ active_event.start_date.strftime('%Y-%m-%d') }} to {{ active_event.end_date.strftime('%Y-%m-%d') }})
+                <br>Points displayed are for the current event only.
+            </div>
+            {% endif %}
+            
             <hr>
             <div class="row mb-3">
                 <div class="col-6">
                     <h4>Total Flights</h4>
-                    <div class="points-display">{{ current_user.total_flights }}</div>
+                    <div class="points-display">
+                        {% if active_event and user_event_points %}
+                        {{ user_event_points.total_flights }}
+                        {% else %}
+                        {{ current_user.total_flights }}
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="col-6">
                     <h4>Standing Time</h4>
-                    <div class="points-display">{{ current_user.total_standing_time }}</div>
+                    <div class="points-display">
+                        {% if active_event and user_event_points %}
+                        {{ user_event_points.total_standing_time }}
+                        {% else %}
+                        {{ current_user.total_standing_time }}
+                        {% endif %}
+                    </div>
                     <p class="text-muted">minutes</p>
                 </div>
             </div>
             <div class="row">
                 <div class="col-6">
                     <h4>Total Steps</h4>
-                    <div class="points-display">{{ current_user.total_steps if current_user.total_steps is not none else 0 }}</div>
+                    <div class="points-display">
+                        {% if active_event and user_event_points %}
+                        {{ user_event_points.total_steps if user_event_points.total_steps is not none else 0 }}
+                        {% else %}
+                        {{ current_user.total_steps if current_user.total_steps is not none else 0 }}
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="col-6">
                     <h4>Total Points</h4>
-                    <div class="points-display">{{ current_user.total_points }}</div>
+                    <div class="points-display">
+                        {% if active_event and user_event_points %}
+                        {{ user_event_points.total_points }}
+                        {% else %}
+                        {{ current_user.total_points }}
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
@@ -32,19 +65,39 @@
         <!-- New Fitness Integration Card -->
         <div class="stats-card">
             <div class="d-flex gap-2 mb-3">
-                <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Link Google Fit">
-                    <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
-                    <span class="ms-2">Link Google Fit</span>
-                </button>
+                {% if current_user.google_fit_token %}
+                    <button type="button" class="btn btn-light fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Google Fit Connected" style="border: 2px solid #28a745; background-color: #f8fff8;">
+                        <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
+                        <span class="ms-2 text-success">Google Fit Connected</span>
+                        <i class="fas fa-check-circle ms-2 text-success"></i>
+                    </button>
+                {% else %}
+                    <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Link Google Fit">
+                        <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
+                        <span class="ms-2">Link Google Fit</span>
+                    </button>
+                {% endif %}
+                
+                <!-- Garmin button remains the same -->
                 <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-garmin-btn" title="Link Garmin">
                     <img src="{{ url_for('static', filename='garmin_logo.png') }}" alt="Garmin" class="icon-img">
                     <span class="ms-2">Link Garmin Connect</span>
                 </button>
             </div>
 
+            {% if current_user.google_fit_token %}
+            <div class="alert alert-info" role="alert">
+                <i class="fas fa-sync-alt"></i> Your Google Fit steps are being synced automatically every 2 hours.
+                <small class="d-block mt-1">Last sync: {{ current_user.google_token_expiry.strftime('%Y-%m-%d %H:%M') if current_user.google_token_expiry else 'Never' }}</small>
+            </div>
             <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn">
-                Log Google Fit Steps
+                Sync Google Fit Steps
             </button>
+            {% else %}
+            <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn" disabled>
+                Connect Google Fit First
+            </button>
+            {% endif %}
             
             <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-garmin-steps-btn">
                 Log Garmin Steps & Stairs
@@ -191,19 +244,43 @@
                 <div class="col-md-6 house-col">
                     <div class="house-card {{ house.name }}">
                         <h4>{{ house.name }} House</h4>
-                        <div class="points-display">{{ house.total_points }}</div>
+                        <div class="points-display">
+                            {% if active_event and house_event_points and house_event_points[house.name] %}
+                            {{ house_event_points[house.name].total_points }}
+                            {% else %}
+                            {{ house.total_points }}
+                            {% endif %}
+                        </div>
                         <div class="row mt-2">
                             <div class="col-4">
                                 <small>Flights</small>
-                                <p>{{ house.total_flights }}</p>
+                                <p>
+                                    {% if active_event and house_event_points and house_event_points[house.name] %}
+                                    {{ house_event_points[house.name].total_flights }}
+                                    {% else %}
+                                    {{ house.total_flights }}
+                                    {% endif %}
+                                </p>
                             </div>
                             <div class="col-4">
                                 <small>Standing</small>
-                                <p>{{ house.total_standing_time }} min</p>
+                                <p>
+                                    {% if active_event and house_event_points and house_event_points[house.name] %}
+                                    {{ house_event_points[house.name].total_standing_time }} min
+                                    {% else %}
+                                    {{ house.total_standing_time }} min
+                                    {% endif %}
+                                </p>
                             </div>
                             <div class="col-4">
                                 <small>Steps</small>
-                                <p>{{ house.total_steps|default(0) }}</p>
+                                <p>
+                                    {% if active_event and house_event_points and house_event_points[house.name] %}
+                                    {{ house_event_points[house.name].total_steps|default(0) }}
+                                    {% else %}
+                                    {{ house.total_steps|default(0) }}
+                                    {% endif %}
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -236,10 +313,34 @@
                             <td>
                                 <span class="house-badge {{ user.house }}">{{ user.house }}</span>
                             </td>
-                            <td>{{ user.total_flights }}</td>
-                            <td>{{ user.total_standing_time }} min</td>
-                            <td>{{ user.total_steps|default(0) }}</td>
-                            <td><strong>{{ user.total_points }}</strong></td>
+                            <td>
+                                {% if active_event and active_event_points_for_user[user.id] is defined %}
+                                {{ active_event_points_for_user[user.id].total_flights }}
+                                {% else %}
+                                {{ user.total_flights }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if active_event and active_event_points_for_user[user.id] is defined %}
+                                {{ active_event_points_for_user[user.id].total_standing_time }} min
+                                {% else %}
+                                {{ user.total_standing_time }} min
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if active_event and active_event_points_for_user[user.id] is defined %}
+                                {{ active_event_points_for_user[user.id].total_steps|default(0) }}
+                                {% else %}
+                                {{ user.total_steps|default(0) }}
+                                {% endif %}
+                            </td>
+                            <td><strong>
+                                {% if active_event and active_event_points_for_user[user.id] is defined %}
+                                {{ active_event_points_for_user[user.id].total_points }}
+                                {% else %}
+                                {{ user.total_points }}
+                                {% endif %}
+                            </strong></td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -300,11 +401,23 @@ document.getElementById('get-google-fit-steps-btn').onclick = function() {
 
 <script>
 document.getElementById('link-google-fit-btn').onclick = function() {
-    window.location.href = "{{ url_for('google_fit_auth') }}";
+    // Add try-catch to handle routing errors gracefully
+    try {
+        window.location.href = "{{ url_for('google_fit_auth') }}";
+    } catch(e) {
+        console.error("Google Fit auth route not available:", e);
+        alert("Google Fit integration is not currently available.");
+    }
 };
 
 document.getElementById('link-garmin-btn').onclick = function() {
-    window.location.href = "{{ url_for('garmin_auth') }}";
+    // Add try-catch to handle routing errors gracefully
+    try {
+        window.location.href = "{{ url_for('garmin_auth') }}";
+    } catch(e) {
+        console.error("Garmin auth route not available:", e);
+        alert("Garmin integration is not currently available.");
+    }
 };
 
 document.getElementById('get-google-fit-steps-btn').onclick = function() {
@@ -320,36 +433,13 @@ document.getElementById('get-google-fit-steps-btn').onclick = function() {
             } else {
                 alert("Error: " + (data.error || "Failed to log steps"));
                 this.disabled = false;
-                this.textContent = "Log Google Fit Steps";
+                this.textContent = "Sync Google Fit Steps";
             }
         })
         .catch(() => {
             alert("Failed to communicate with server");
             this.disabled = false;
-            this.textContent = "Log Google Fit Steps";
-        });
-};
-
-document.getElementById('get-garmin-steps-btn').onclick = function() {
-    // Show loading state
-    this.disabled = true;
-    this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
-    
-    fetch('/log_garmin_data', { method: 'POST' })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                window.location.reload(); // Refresh page to show updated points
-            } else {
-                alert("Error: " + (data.error || "Failed to log Garmin data"));
-                this.disabled = false;
-                this.textContent = "Log Garmin Steps & Stairs";
-            }
-        })
-        .catch(() => {
-            alert("Failed to communicate with server");
-            this.disabled = false;
-            this.textContent = "Log Garmin Steps & Stairs";
+            this.textContent = "Sync Google Fit Steps";
         });
 };
 </script>
