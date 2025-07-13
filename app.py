@@ -154,7 +154,20 @@ def check_for_xss_attempts():
 @app.route('/')
 def index():
     houses = House.query.order_by(House.total_points.desc()).all()
-    return render_template('index.html', houses=houses)
+    
+    # Check if there's an active event
+    active_event = get_active_event()
+    
+    # If there's an active event, get event-specific points for each house
+    house_event_points = {}
+    if active_event:
+        for house in houses:
+            house_event_points[house.name] = get_event_points(house_name=house.name)
+    
+    return render_template('index.html', 
+                          houses=houses,
+                          active_event=active_event,
+                          house_event_points=house_event_points)
 
 @app.route('/register', methods=['GET', 'POST'])
 @limiter.limit("200 per minute")
@@ -282,23 +295,24 @@ def auth_callback():
             if is_admin_login and not user.is_admin:
                 user.is_admin = True
                 db.session.commit()
-            
+        
             login_user(user)
             user.last_login = datetime.now(timezone.utc)
             db.session.commit()
             
             log_activity(app, user.id, 'Cognito Login', 'Success')
-            flash('Welcome back, Dragon Climber!', 'success')
             
             # Store tokens in session
             session['cognito_id_token'] = id_token
             session['cognito_access_token'] = access_token
             
-            # Redirect admin users to admin dashboard
+            # Redirect admin users to admin dashboard with appropriate message
             if user.is_admin:
+                flash('Welcome to the admin dashboard!', 'success')
                 return redirect(url_for('admin_dashboard'))
             else:
-                return redirect(url_for('dashboard'))  # Instead of dashboard
+                flash('Welcome back, Dragon Climber!', 'success')
+                return redirect(url_for('dashboard'))
             
     except Exception as e:
         app.logger.error(f'Auth callback error: {str(e)}')
@@ -1568,3 +1582,59 @@ def log_google_fit_steps():
             'success': False,
             'error': 'An unexpected error occurred during sync. Please try again later.'
         })
+
+@app.route('/analytics-dashboard')
+@login_required
+def analytics_dashboard():
+    """Display analytics dashboard with visualizations of house performance"""
+    houses = House.query.order_by(House.name).all()
+    
+    # Prepare data for charts
+    house_names = [house.name for house in houses]
+    
+    # Define colors for each house - using CSS variables
+    house_colors = {
+        'Black': 'rgba(51, 51, 51, 0.8)',
+        'Blue': 'rgba(0, 102, 204, 0.8)',
+        'Green': 'rgba(0, 153, 51, 0.8)',
+        'White': 'rgba(248, 249, 250, 0.8)',
+        'Gold': 'rgba(255, 204, 0, 0.8)',
+        'Purple': 'rgba(102, 0, 153, 0.8)'
+    }
+    
+    house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
+    
+    # Prepare climbing data
+    climbing_data = {
+        'flights': [house.total_flights for house in houses],
+        'points': [house.total_flights * 10 for house in houses]
+    }
+    
+    # Prepare standing data
+    standing_data = {
+        'minutes': [getattr(house, 'total_standing_time', 0) for house in houses],
+        'points': [getattr(house, 'total_standing_time', 0) for house in houses]
+    }
+    
+    # Prepare steps data
+    steps_data = {
+        'steps': [getattr(house, 'total_steps', 0) for house in houses],
+        'points': [getattr(house, 'total_steps', 0) // 100 for house in houses]
+    }
+    
+    # Prepare combined data
+    combined_data = {
+        'climbing_points': [house.total_flights * 10 for house in houses],
+        'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
+        'steps_points': [getattr(house, 'total_steps', 0) // 100 for house in houses],
+        'total_points': [house.total_points for house in houses]
+    }
+    
+    return render_template('analytics_dashboard.html',
+                         houses=houses,
+                         house_names=house_names,
+                         house_colors=house_colors_list,
+                         climbing_data=climbing_data,
+                         standing_data=standing_data,
+                         steps_data=steps_data,
+                         combined_data=combined_data)
