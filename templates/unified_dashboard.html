@@ -43,11 +43,11 @@
             </div>
 
             <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn">
-                Get Google Fit Steps
+                Log Google Fit Steps
             </button>
             
             <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-garmin-steps-btn">
-                Get Garmin Steps & Stairs
+                Log Garmin Steps & Stairs
             </button>
         </div>
 
@@ -302,27 +302,54 @@ document.getElementById('get-google-fit-steps-btn').onclick = function() {
 document.getElementById('link-google-fit-btn').onclick = function() {
     window.location.href = "{{ url_for('google_fit_auth') }}";
 };
-</script>
-<script>
+
 document.getElementById('link-garmin-btn').onclick = function() {
     window.location.href = "{{ url_for('garmin_auth') }}";
 };
-document.getElementById('get-garmin-steps-btn').onclick = function() {
-    const resultDiv = document.getElementById('garmin-steps-result');
-    resultDiv.textContent = "Fetching data...";
-    fetch('/get_garmin_steps')
+
+document.getElementById('get-google-fit-steps-btn').onclick = function() {
+    // Show loading state
+    this.disabled = true;
+    this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+    
+    fetch('/log_google_fit_steps', { method: 'POST' })
         .then(res => res.json())
-        .then(data => {  <!-- Added missing parentheses around 'data' -->
-            if (data.steps !== undefined && data.stairs !== undefined) {
-                resultDiv.textContent = "Garmin Steps: " + data.steps + ", Stairs Climbed: " + data.stairs;
-            } else if (data.error) {
-                resultDiv.textContent = "Error: " + data.error;
+        .then(data => {
+            if (data.success) {
+                window.location.reload(); // Refresh page to show updated points
             } else {
-                resultDiv.textContent = "No data received.";
+                alert("Error: " + (data.error || "Failed to log steps"));
+                this.disabled = false;
+                this.textContent = "Log Google Fit Steps";
             }
         })
         .catch(() => {
-            resultDiv.textContent = "Failed to fetch data.";
+            alert("Failed to communicate with server");
+            this.disabled = false;
+            this.textContent = "Log Google Fit Steps";
+        });
+};
+
+document.getElementById('get-garmin-steps-btn').onclick = function() {
+    // Show loading state
+    this.disabled = true;
+    this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+    
+    fetch('/log_garmin_data', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                window.location.reload(); // Refresh page to show updated points
+            } else {
+                alert("Error: " + (data.error || "Failed to log Garmin data"));
+                this.disabled = false;
+                this.textContent = "Log Garmin Steps & Stairs";
+            }
+        })
+        .catch(() => {
+            alert("Failed to communicate with server");
+            this.disabled = false;
+            this.textContent = "Log Garmin Steps & Stairs";
         });
 };
 </script>

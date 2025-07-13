@@ -319,7 +319,8 @@ body {
 
 .integration-result {
     font-size: 1.1em;
-    min-height: 1.5em; /* Provides consistent height even when empty */
+    min-height: 1.5em;
+    padding: 0.25rem;
 }
 
 /* Collapsible content styles */
