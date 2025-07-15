@@ -116,45 +116,75 @@ function validateChartData() {
         // Check climbing data
         if (!climbingData || typeof climbingData !== 'object') {
             debugInfo += "Missing climbing data\n";
-            climbingData = {flights: [0], points: [0]};
+            climbingData = {flights: [0.01], points: [0.01]};
             isValid = false;
         } else {
             debugInfo += `Climbing data - Flights: ${JSON.stringify(climbingData.flights)}\n`;
             debugInfo += `Climbing data - Points: ${JSON.stringify(climbingData.points)}\n`;
+            
+            // Handle all zeros by converting to small non-zero values
+            if (climbingData.points.every(val => val === 0)) {
+                debugInfo += "All climbing points are zero, using small values instead\n";
+                climbingData.points = climbingData.points.map(() => 0.01);
+            }
         }
         
         // Check standing data
         if (!standingData || typeof standingData !== 'object') {
             debugInfo += "Missing standing data\n";
-            standingData = {minutes: [0], points: [0]};
+            standingData = {minutes: [0.01], points: [0.01]};
             isValid = false;
         } else {
             debugInfo += `Standing data - Minutes: ${JSON.stringify(standingData.minutes)}\n`;
             debugInfo += `Standing data - Points: ${JSON.stringify(standingData.points)}\n`;
+            
+            // Handle all zeros by converting to small non-zero values
+            if (standingData.points.every(val => val === 0)) {
+                debugInfo += "All standing points are zero, using small values instead\n";
+                standingData.points = standingData.points.map(() => 0.01);
+            }
         }
         
         // Check steps data
         if (!stepsData || typeof stepsData !== 'object') {
             debugInfo += "Missing steps data\n";
-            stepsData = {steps: [0], points: [0]};
+            stepsData = {steps: [0.01], points: [0.01]};
             isValid = false;
         } else {
             debugInfo += `Steps data - Steps: ${JSON.stringify(stepsData.steps)}\n`;
             debugInfo += `Steps data - Points: ${JSON.stringify(stepsData.points)}\n`;
+            
+            // Handle all zeros by converting to small non-zero values
+            if (stepsData.points.every(val => val === 0)) {
+                debugInfo += "All steps points are zero, using small values instead\n";
+                stepsData.points = stepsData.points.map(() => 0.01);
+            }
         }
         
         // Check combined data
         if (!combinedData || typeof combinedData !== 'object') {
             debugInfo += "Missing combined data\n";
             combinedData = {
-                climbing_points: [0],
-                standing_points: [0],
-                steps_points: [0],
-                total_points: [0]
+                climbing_points: [0.01],
+                standing_points: [0.01],
+                steps_points: [0.01],
+                total_points: [0.01]
             };
             isValid = false;
         } else {
             debugInfo += `Combined data - Total Points: ${JSON.stringify(combinedData.total_points)}\n`;
+            
+            // Handle all zeros by converting to small non-zero values
+            if (combinedData.total_points.every(val => val === 0)) {
+                debugInfo += "All combined points are zero, using small values instead\n";
+                combinedData.total_points = combinedData.total_points.map(() => 0.01);
+            }
+            
+            for (const key of ['climbing_points', 'standing_points', 'steps_points']) {
+                if (combinedData[key] && combinedData[key].every(val => val === 0)) {
+                    combinedData[key] = combinedData[key].map(() => 0.01);
+                }
+            }
         }
         
         // Check that all arrays are the same length

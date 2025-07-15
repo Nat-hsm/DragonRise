@@ -6,6 +6,14 @@
             <h2>DragonRise Analytics</h2>
             <p class="text-muted">Visualize house performance data</p>
             
+            {% if active_event %}
+            <div class="alert alert-info mb-3">
+                <i class="fas fa-trophy"></i> <strong>Active Event:</strong> {{ active_event.name }} 
+                ({{ active_event.start_date.strftime('%Y-%m-%d') }} to {{ active_event.end_date.strftime('%Y-%m-%d') }})
+                <br>Charts are displaying data accumulated during this event period only.
+            </div>
+            {% endif %}
+            
             <!-- Chart Type Selection -->
             <div class="btn-group mb-4" role="group">
                 <button type="button" class="btn btn-primary active" id="barChartBtn">Bar Charts</button>
@@ -132,13 +140,32 @@
                         <td>
                             <span class="house-badge {{ house.name }}">{{ house.name }}</span>
                         </td>
-                        <td>{{ house.total_flights }}</td>
-                        <td>{{ house.total_flights * 10 }}</td>
-                        <td>{{ house.total_standing_time }}</td>
-                        <td>{{ house.total_standing_time }}</td>
-                        <td>{{ house.total_steps }}</td>
-                        <td>{{ house.total_steps // 100 }}</td>
-                        <td>{{ house.total_points }}</td>
+                        {% if active_event %}
+                            {% set event_data = climbing_data.flights[loop.index0] %}
+                            {% set event_climb_points = climbing_data.points[loop.index0] %}
+                            {% set event_standing_time = standing_data.minutes[loop.index0] %}
+                            {% set event_standing_points = standing_data.points[loop.index0] %}
+                            {% set event_steps = steps_data.steps[loop.index0] %}
+                            {% set event_steps_points = steps_data.points[loop.index0] %}
+                            {% set event_total_points = combined_data.total_points[loop.index0] %}
+                            
+                            <!-- Display 0 instead of 0.01 in the table -->
+                            <td>{{ 0 if event_data == 0.01 else event_data }}</td>
+                            <td>{{ 0 if event_climb_points == 0.01 else event_climb_points }}</td>
+                            <td>{{ 0 if event_standing_time == 0.01 else event_standing_time }}</td>
+                            <td>{{ 0 if event_standing_points == 0.01 else event_standing_points }}</td>
+                            <td>{{ 0 if event_steps == 0.01 else event_steps }}</td>
+                            <td>{{ 0 if event_steps_points == 0.01 else event_steps_points }}</td>
+                            <td>{{ 0 if event_total_points == 0.01 else event_total_points }}</td>
+                        {% else %}
+                            <td>{{ house.total_flights }}</td>
+                            <td>{{ house.total_flights * 10 }}</td>
+                            <td>{{ house.total_standing_time }}</td>
+                            <td>{{ house.total_standing_time }}</td>
+                            <td>{{ house.total_steps }}</td>
+                            <td>{{ house.total_steps // 100 }}</td>
+                            <td>{{ house.total_points }}</td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -153,12 +180,12 @@
 
 <script>
     // Chart data from server
-    const houseNames = {{ house_names|tojson }};
-    const houseColors = {{ house_colors|tojson }};
-    const climbingData = {{ climbing_data|tojson }};
-    const standingData = {{ standing_data|tojson }};
-    const stepsData = {{ steps_data|tojson }};
-    const combinedData = {{ combined_data|tojson }};
+    const houseNames = {{ house_names|tojson|safe }};
+    const houseColors = {{ house_colors|tojson|safe }};
+    const climbingData = {{ climbing_data|tojson|safe }};
+    const standingData = {{ standing_data|tojson|safe }};
+    const stepsData = {{ steps_data|tojson|safe }};
+    const combinedData = {{ combined_data|tojson|safe }};
     
     // Initialize charts
     let climbBarChart, standingBarChart, stepsBarChart, combinedBarChart;
@@ -413,8 +440,7 @@
                         }
                     }
                 }
-            }
-        });
+            }});
         
         // Standing pie chart
         const standingPieCtx = document.getElementById('standingPieChart').getContext('2d');
@@ -455,8 +481,7 @@
                         }
                     }
                 }
-            }
-        });
+            }});
         
         // Steps pie chart
         const stepsPieCtx = document.getElementById('stepsPieChart').getContext('2d');
@@ -497,8 +522,7 @@
                         }
                     }
                 }
-            }
-        });
+            }});
         
         // Combined pie chart
         const combinedPieCtx = document.getElementById('combinedPieChart').getContext('2d');
@@ -539,8 +563,7 @@
                         }
                     }
                 }
-            }
-        });
+            }});
     }
     
     // Initialize all charts when page loads

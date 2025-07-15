@@ -1589,6 +1589,9 @@ def analytics_dashboard():
     """Display analytics dashboard with visualizations of house performance"""
     houses = House.query.order_by(House.name).all()
     
+    # Check if there's an active event
+    active_event = get_active_event()
+    
     # Prepare data for charts
     house_names = [house.name for house in houses]
     
@@ -1604,31 +1607,90 @@ def analytics_dashboard():
     
     house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
     
-    # Prepare climbing data
-    climbing_data = {
-        'flights': [house.total_flights for house in houses],
-        'points': [house.total_flights * 10 for house in houses]
-    }
-    
-    # Prepare standing data
-    standing_data = {
-        'minutes': [getattr(house, 'total_standing_time', 0) for house in houses],
-        'points': [getattr(house, 'total_standing_time', 0) for house in houses]
-    }
-    
-    # Prepare steps data
-    steps_data = {
-        'steps': [getattr(house, 'total_steps', 0) for house in houses],
-        'points': [getattr(house, 'total_steps', 0) // 100 for house in houses]
-    }
-    
-    # Prepare combined data
+    # Prepare data containers
+    climbing_data = {'flights': [], 'points': []}
+    standing_data = {'minutes': [], 'points': []}
+    steps_data = {'steps': [], 'points': []}
     combined_data = {
-        'climbing_points': [house.total_flights * 10 for house in houses],
-        'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
-        'steps_points': [getattr(house, 'total_steps', 0) // 100 for house in houses],
-        'total_points': [house.total_points for house in houses]
+        'climbing_points': [],
+        'standing_points': [],
+        'steps_points': [],
+        'total_points': []
     }
+    
+    # Get data based on active event or all-time
+    if active_event:
+        # Event-specific data
+        for house in houses:
+            house_event_points = get_event_points(house_name=house.name)
+            if house_event_points:
+                # Climbing data
+                flights = house_event_points['total_flights']
+                climbing_points = flights * 10
+                climbing_data['flights'].append(flights)
+                climbing_data['points'].append(climbing_points)
+                
+                # Standing data
+                standing_minutes = house_event_points['total_standing_time']
+                standing_data['minutes'].append(standing_minutes)
+                standing_data['points'].append(standing_minutes)
+                
+                # Steps data
+                steps = house_event_points['total_steps']
+                steps_data['steps'].append(steps)
+                steps_data['points'].append(steps // 100)
+                
+                # Combined data
+                combined_data['climbing_points'].append(climbing_points)
+                combined_data['standing_points'].append(standing_minutes)
+                combined_data['steps_points'].append(steps // 100)
+                combined_data['total_points'].append(house_event_points['total_points'])
+            else:
+                # Fallback to zeros if no event data
+                climbing_data['flights'].append(0)
+                climbing_data['points'].append(0)
+                standing_data['minutes'].append(0)
+                standing_data['points'].append(0)
+                steps_data['steps'].append(0)
+                steps_data['points'].append(0)
+                combined_data['climbing_points'].append(0)
+                combined_data['standing_points'].append(0)
+                combined_data['steps_points'].append(0)
+                combined_data['total_points'].append(0)
+    else:
+        # All-time data
+        climbing_data = {
+            'flights': [house.total_flights for house in houses],
+            'points': [house.total_flights * 10 for house in houses]
+        }
+        
+        standing_data = {
+            'minutes': [getattr(house, 'total_standing_time', 0) for house in houses],
+            'points': [getattr(house, 'total_standing_time', 0) for house in houses]
+        }
+        
+        steps_data = {
+            'steps': [getattr(house, 'total_steps', 0) for house in houses],
+            'points': [getattr(house, 'total_steps', 0) // 100 for house in houses]
+        }
+        
+        combined_data = {
+            'climbing_points': [house.total_flights * 10 for house in houses],
+            'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
+            'steps_points': [getattr(house, 'total_steps', 0) // 100 for house in houses],
+            'total_points': [house.total_points for house in houses]
+        }
+    
+    # Ensure data arrays are never empty - add a small value if everything is zero
+    # This ensures charts still render even when there's no actual data
+    for data_type in [climbing_data, standing_data, steps_data]:
+        for key in data_type:
+            if not data_type[key] or all(x == 0 for x in data_type[key]):
+                data_type[key] = [0.01] * len(houses)  # Use small non-zero values instead of zeros
+    
+    for key in combined_data:
+        if not combined_data[key] or all(x == 0 for x in combined_data[key]):
+            combined_data[key] = [0.01] * len(houses)
     
     return render_template('analytics_dashboard.html',
                          houses=houses,
@@ -1637,4 +1699,5 @@ def analytics_dashboard():
                          climbing_data=climbing_data,
                          standing_data=standing_data,
                          steps_data=steps_data,
-                         combined_data=combined_data)
+                         combined_data=combined_data,
+                         active_event=active_event)
