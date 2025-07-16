@@ -103,7 +103,7 @@ body {
 
 /* House Rankings Card */
 .house-rankings-card {
-    height: calc(100% - 40px); /* Adjust for the margin-bottom of stats-card */
+   /* height: calc(100% - 40px); /* Adjust for the margin-bottom of stats-card */
     display: flex;
     flex-direction: column;
 }
@@ -277,4 +277,75 @@ body {
     background-color: #f8f9fa;
     min-width: 150px;
     flex: 1;
+}
+
+.fitness-integration-btn {
+    border: 1px solid #dee2e6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background-color: #f8f9fa;
+    transition: all 0.2s;
+}
+
+.fitness-integration-btn:hover {
+    background-color: #e9ecef;
+    border-color: #ced4da;
+}
+
+.icon-img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    vertical-align: middle;
+    display: inline-block;
+}
+
+.btn-opaque-rect {
+    border: 1px solid #dee2e6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background-color: #f8f9fa;
+    transition: all 0.2s;
+}
+
+.btn-opaque-rect:hover {
+    background-color: #e9ecef;
+    border-color: #ced4da;
+}
+
+.integration-result {
+    font-size: 1.1em;
+    min-height: 1.5em;
+    padding: 0.25rem;
+}
+
+/* Collapsible content styles */
+.collapse-text-hide {
+    display: none;
+}
+
+.collapse.show .collapse-text-hide {
+    display: inline;
+}
+
+.collapse.show .collapse-text-show {
+    display: none;
+}
+
+.empty-log-item {
+    height: 58px;
+    border-color: #f8f9fa;
+}
+
+/* Tab content borders */
+.tab-content {
+    border-left: 1px solid #dee2e6;
+    border-right: 1px solid #dee2e6;
+    border-bottom: 1px solid #dee2e6;
+    border-bottom-left-radius: 0.25rem;
+    border-bottom-right-radius: 0.25rem;
 }

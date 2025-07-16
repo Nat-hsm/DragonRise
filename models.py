@@ -269,8 +269,8 @@ def init_houses():
 
 
 def get_leaderboard(limit=10):
-    """Get top users by points"""
-    return User.query.order_by(User.total_points.desc()).limit(limit).all()
+    """Get top users by points, excluding admins"""
+    return User.query.filter_by(is_admin=False).order_by(User.total_points.desc()).limit(limit).all()
 
 
 def get_house_rankings():
