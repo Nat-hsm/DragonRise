@@ -16,7 +16,7 @@ class User(UserMixin, db.Model):
     total_points = db.Column(db.Integer, default=0)
     total_standing_time = db.Column(db.Integer, default=0)  # Total standing time in minutes
     total_steps = db.Column(db.Integer, default=0)  # Total steps count
-    join_date = db.Column(db.DateTime, default=datetime.utcnow)
+    join_date = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     last_login = db.Column(db.DateTime)
     is_active = db.Column(db.Boolean, default=True)
     is_admin = db.Column(db.Boolean, default=False)
@@ -95,7 +95,7 @@ class House(db.Model):
     total_standing_time = db.Column(db.Integer, default=0)  # Total standing time in minutes
     total_steps = db.Column(db.Integer, default=0)  # Total steps count
     member_count = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     last_activity = db.Column(db.DateTime)
 
     # Indexes
@@ -111,13 +111,13 @@ class House(db.Model):
         """Update house points and flights"""
         self.total_flights += flights
         self.total_points += flights * 10
-        self.last_activity = datetime.utcnow()
+        self.last_activity = datetime.now(timezone.utc)
 
     def update_standing_time(self, minutes):
         """Update house standing time and points"""
         self.total_standing_time += minutes
         self.total_points += minutes  # 1 point per minute
-        self.last_activity = datetime.utcnow()
+        self.last_activity = datetime.now(timezone.utc)
         
     def update_steps(self, steps):
         """Update house steps and points"""
@@ -125,7 +125,7 @@ class House(db.Model):
         if hasattr(self, 'total_steps'):
             self.total_steps += steps
             self.total_points += steps // 100  # 1 point per 100 steps
-            self.last_activity = datetime.utcnow()
+            self.last_activity = datetime.now(timezone.utc)
 
     def add_member(self):
         """Increment member count"""
@@ -148,7 +148,7 @@ class ClimbLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     flights = db.Column(db.Integer, nullable=False)
     points = db.Column(db.Integer, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     notes = db.Column(db.String(200))  # Optional notes for the climb
 
     # Indexes
@@ -192,7 +192,7 @@ class StandingLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     minutes = db.Column(db.Integer, nullable=False)  # Standing time in minutes
     points = db.Column(db.Integer, nullable=False)   # Points earned (1 per minute)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     notes = db.Column(db.String(200))  # Optional notes
 
     # Indexes
@@ -245,7 +245,7 @@ class Achievement(db.Model):
     points_required = db.Column(db.Integer)
     flights_required = db.Column(db.Integer)
     icon = db.Column(db.String(100))  # Path to achievement icon
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
 
     def __repr__(self):
         return f'<Achievement {self.name}>'
@@ -255,7 +255,7 @@ class Achievement(db.Model):
 user_achievements = db.Table('user_achievements',
     db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
     db.Column('achievement_id', db.Integer, db.ForeignKey('achievements.id'), primary_key=True),
-    db.Column('earned_at', db.DateTime, default=datetime.utcnow)
+    db.Column('earned_at', db.DateTime, default=datetime.now(timezone.utc))
 )
 
 
@@ -361,8 +361,8 @@ class PeakHourSetting(db.Model):
     end_time = db.Column(db.Time, nullable=False)
     multiplier = db.Column(db.Integer, default=2)
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     def __init__(self, name, start_time, end_time, multiplier=2, is_active=True):
         self.name = name
@@ -433,7 +433,7 @@ class Event(db.Model):
     start_date = db.Column(db.DateTime, nullable=False)
     end_date = db.Column(db.DateTime, nullable=False)
     is_active = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     
     def __init__(self, name, description, start_date, end_date, is_active=False):
         self.name = name
@@ -558,3 +558,19 @@ def get_event_points(user_id=None, house_name=None):
             result['total_points'] += log.points
     
     return result
+
+def should_award_points():
+    """
+    Determine whether points should be awarded based on active events
+    
+    Returns:
+        bool: True if points should be awarded, False otherwise
+    """
+    # If there's no active event, always award points
+    active_event = get_active_event()
+    if not active_event:
+        return True
+        
+    # If there is an active event, check if we're within its timeframe
+    current_time = datetime.now(timezone.utc)
+    return is_in_active_event(current_time)
