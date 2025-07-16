@@ -416,6 +416,21 @@ def admin_dashboard():
     # Get all houses
     houses = House.query.order_by(House.name).all()
     
+    # Check if there's an active event
+    active_event = get_active_event()
+    
+    # Get event-specific points for users and houses if an event is active
+    user_event_points = {}
+    house_event_points = {}
+    if active_event:
+        # Get event points for each user
+        for user in users:
+            user_event_points[user.id] = get_event_points(user_id=user.id)
+        
+        # Get event points for each house
+        for house in houses:
+            house_event_points[house.name] = get_event_points(house_name=house.name)
+    
     # Get peak hour settings
     try:
         from models import get_peak_hour_settings
@@ -452,7 +467,10 @@ def admin_dashboard():
                          peak_hours=peak_hours,
                          total_stats=total_stats,
                          activity_logs=activity_logs,
-                         events=events)  # Add events to template context
+                         events=events,
+                         active_event=active_event,
+                         user_event_points=user_event_points,
+                         house_event_points=house_event_points)
 
 @app.route('/admin-dashboard/delete-user', methods=['POST'])
 @login_required
@@ -635,8 +653,19 @@ def toggle_event():
         
         # Toggle active status
         if not event.is_active:
-            # Deactivate all other events first
-            Event.query.filter_by(is_active=True).update({'is_active': False})
+            # Check for any existing active events
+            current_active_events = Event.query.filter_by(is_active=True).all()
+            
+            if current_active_events:
+                # Log which events are being deactivated
+                for active_event in current_active_events:
+                    log_activity(app, current_user.id, 'Event Deactivated', 
+                                f'Event "{active_event.name}" automatically deactivated when activating "{event.name}"')
+                    app.logger.info(f'Auto-deactivating event: {active_event.name} (ID: {active_event.id})')
+                
+                # Deactivate all other events
+                Event.query.filter_by(is_active=True).update({'is_active': False})
+                app.logger.info(f'Successfully deactivated {len(current_active_events)} existing active events')
             
             # Activate this event
             event.is_active = True

@@ -13,6 +13,13 @@
     <div class="col-md-6">
         <div class="stats-card">
             <h3>User Management</h3>
+            {% if active_event %}
+            <div class="alert alert-info mb-3">
+                <i class="fas fa-info-circle"></i> <strong>Active Event:</strong> {{ active_event.name }} 
+                ({{ active_event.start_date.strftime('%Y-%m-%d') }} to {{ active_event.end_date.strftime('%Y-%m-%d') }})
+                <br>Displaying points accumulated during this event period only.
+            </div>
+            {% endif %}
             <table class="table">
                 <thead>
                     <tr>
@@ -32,10 +39,17 @@
                         <td>
                             <span class="house-badge {{ user.house }}">{{ user.house }}</span>
                         </td>
-                        <td>{{ user.total_flights }}</td>
-                        <td>{{ user.total_standing_time }} min</td>
-                        <td>{{ user.total_steps|default(0) }}</td>
-                        <td>{{ user.total_points }}</td>
+                        {% if active_event and user_event_points and user.id in user_event_points %}
+                            <td>{{ user_event_points[user.id].total_flights|default(0) }}</td>
+                            <td>{{ user_event_points[user.id].total_standing_time|default(0) }} min</td>
+                            <td>{{ user_event_points[user.id].total_steps|default(0) }}</td>
+                            <td>{{ user_event_points[user.id].total_points|default(0) }}</td>
+                        {% else %}
+                            <td>{{ user.total_flights }}</td>
+                            <td>{{ user.total_standing_time }} min</td>
+                            <td>{{ user.total_steps|default(0) }}</td>
+                            <td>{{ user.total_points }}</td>
+                        {% endif %}
                         <td>
                             {% if not user.is_admin %}
                             <form action="/admin-dashboard/delete-user" method="POST" style="display:inline;">
@@ -56,6 +70,13 @@
     <div class="col-md-6">
         <div class="stats-card">
             <h3>House Management</h3>
+            {% if active_event %}
+            <div class="alert alert-info mb-3">
+                <i class="fas fa-info-circle"></i> <strong>Active Event:</strong> {{ active_event.name }} 
+                ({{ active_event.start_date.strftime('%Y-%m-%d') }} to {{ active_event.end_date.strftime('%Y-%m-%d') }})
+                <br>Displaying points accumulated during this event period only.
+            </div>
+            {% endif %}
             <table class="table">
                 <thead>
                     <tr>
@@ -75,10 +96,17 @@
                             <span class="house-badge {{ house.name }}">{{ house.name }}</span>
                         </td>
                         <td>{{ house.member_count }}</td>
-                        <td>{{ house.total_flights }}</td>
-                        <td>{{ house.total_standing_time }}</td>
-                        <td>{{ house.total_steps|default(0) }}</td>
-                        <td>{{ house.total_points }}</td>
+                        {% if active_event and house_event_points and house.name in house_event_points %}
+                            <td>{{ house_event_points[house.name].total_flights|default(0) }}</td>
+                            <td>{{ house_event_points[house.name].total_standing_time|default(0) }}</td>
+                            <td>{{ house_event_points[house.name].total_steps|default(0) }}</td>
+                            <td>{{ house_event_points[house.name].total_points|default(0) }}</td>
+                        {% else %}
+                            <td>{{ house.total_flights }}</td>
+                            <td>{{ house.total_standing_time }}</td>
+                            <td>{{ house.total_steps|default(0) }}</td>
+                            <td>{{ house.total_points }}</td>
+                        {% endif %}
                         <td>
                             <form action="/admin-dashboard/reset-house" method="POST" style="display:inline;">
                                 <input type="hidden" name="house_id" value="{{ house.id }}">
