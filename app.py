@@ -3,7 +3,7 @@ from flask_login import UserMixin, login_user, login_required, logout_user, curr
 from flask_wtf import FlaskForm
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.sql import text
-from sqlalchemy import create_engine, text, func
+from sqlalchemy import create_engine, text, func, and_
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 import os
@@ -19,8 +19,10 @@ from utils.image_analyzer import ImageAnalyzer
 from utils.time_utils import is_peak_hour, get_points_multiplier, get_peak_hours_message, get_current_peak_hour_info
 from config import get_config, validate_config
 from extensions import db, login_manager, migrate, cognito_auth
+# Add the missing OAuth import
 from authlib.integrations.flask_client import OAuth
-from urllib.parse import urlencode
+# Import models - add init_houses, init_admin, and init_peak_hours to the imports
+from models import User, House, ClimbLog, StandingLog, StepLog, Event, get_active_event, is_in_active_event, get_event_points, init_houses, init_admin, init_peak_hours, should_award_points
 
 # For Google Fit Integration and Garmin API
 import requests
@@ -70,9 +72,6 @@ try:
 except Exception as e:
     app.logger.error(f"Failed to setup database: {str(e)}")
     # Continue anyway to allow app initialization, but functionality will be limited
-
-# Import models AFTER extensions are initialized
-from models import User, House, ClimbLog, StandingLog, StepLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
 
 # Initialize cognito auth in app.py (add to your initialization section)
 cognito_auth.init_app(app)
@@ -155,7 +154,20 @@ def check_for_xss_attempts():
 @app.route('/')
 def index():
     houses = House.query.order_by(House.total_points.desc()).all()
-    return render_template('index.html', houses=houses)
+    
+    # Check if there's an active event
+    active_event = get_active_event()
+    
+    # If there's an active event, get event-specific points for each house
+    house_event_points = {}
+    if active_event:
+        for house in houses:
+            house_event_points[house.name] = get_event_points(house_name=house.name)
+    
+    return render_template('index.html', 
+                          houses=houses,
+                          active_event=active_event,
+                          house_event_points=house_event_points)
 
 @app.route('/register', methods=['GET', 'POST'])
 @limiter.limit("200 per minute")
@@ -168,27 +180,35 @@ def register():
 @limiter.limit("200 per minute")
 def login():
     """Direct users to Cognito login flow"""
-    # For all requests, redirect to Cognito auth
-    redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
-    params = {
-        'prompt': 'login',
-        'max_age': 0,  # Force re-authentication
-        'id_token_hint': None  # Ignore any existing session
-    }
-    return oauth.oidc.authorize_redirect(redirect_uri, **params)
+    try:
+        # For all requests, redirect to Cognito auth
+        redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
+        
+        # Use the updated CognitoAuth implementation to get the correct login URL
+        login_url = cognito_auth.get_login_url()
+        app.logger.info(f"Redirecting to Cognito login: {login_url}")
+        
+        return redirect(login_url)
+    except Exception as e:
+        app.logger.error(f"Error redirecting to login: {str(e)}")
+        flash('An error occurred during login. Please try again.', 'danger')
+        return redirect(url_for('index'))
 
 @app.route('/signup')
 @limiter.limit("200 per minute")
 def signup():
     """Direct users to Cognito signup flow"""
-    redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
-    # Add parameters that force a fresh session
-    params = {
-        'prompt': 'login',
-        'max_age': 0,
-        'state': 'signup'
-    }
-    return oauth.oidc.authorize_redirect(redirect_uri, **params)
+    try:
+        # Use the updated CognitoAuth implementation to get the correct login URL
+        # Add state parameter to indicate this is a signup flow
+        login_url = cognito_auth.get_login_url(state='signup')
+        app.logger.info(f"Redirecting to Cognito signup: {login_url}")
+        
+        return redirect(login_url)
+    except Exception as e:
+        app.logger.error(f"Error redirecting to signup: {str(e)}")
+        flash('An error occurred during signup. Please try again.', 'danger')
+        return redirect(url_for('index'))
 
 @app.route('/auth/callback')
 def auth_callback():
@@ -283,23 +303,24 @@ def auth_callback():
             if is_admin_login and not user.is_admin:
                 user.is_admin = True
                 db.session.commit()
-            
+        
             login_user(user)
             user.last_login = datetime.now(timezone.utc)
             db.session.commit()
             
             log_activity(app, user.id, 'Cognito Login', 'Success')
-            flash('Welcome back, Dragon Climber!', 'success')
             
             # Store tokens in session
             session['cognito_id_token'] = id_token
             session['cognito_access_token'] = access_token
             
-            # Redirect admin users to admin dashboard
+            # Redirect admin users to admin dashboard with appropriate message
             if user.is_admin:
+                flash('Welcome to the admin dashboard!', 'success')
                 return redirect(url_for('admin_dashboard'))
             else:
-                return redirect(url_for('dashboard'))  # Instead of dashboard
+                flash('Welcome back, Dragon Climber!', 'success')
+                return redirect(url_for('dashboard'))
             
     except Exception as e:
         app.logger.error(f'Auth callback error: {str(e)}')
@@ -395,13 +416,28 @@ def admin_dashboard():
     if not current_user.is_admin:
         log_access_attempt(False, "Admin Dashboard", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('dashboard'))  # Update this line
+        return redirect(url_for('dashboard'))
         
     # Get all users
     users = User.query.all()
     
     # Get all houses
     houses = House.query.order_by(House.name).all()
+    
+    # Check if there's an active event
+    active_event = get_active_event()
+    
+    # Get event-specific points for users and houses if an event is active
+    user_event_points = {}
+    house_event_points = {}
+    if active_event:
+        # Get event points for each user
+        for user in users:
+            user_event_points[user.id] = get_event_points(user_id=user.id)
+        
+        # Get event points for each house
+        for house in houses:
+            house_event_points[house.name] = get_event_points(house_name=house.name)
     
     # Get peak hour settings
     try:
@@ -410,6 +446,13 @@ def admin_dashboard():
     except Exception as e:
         app.logger.error(f"Error getting peak hour settings: {str(e)}")
         peak_hours = []
+    
+    # Get events
+    try:
+        events = Event.query.order_by(Event.start_date.desc()).all()
+    except Exception as e:
+        app.logger.error(f"Error getting events: {str(e)}")
+        events = []
     
     # Calculate total statistics
     total_stats = {
@@ -431,7 +474,11 @@ def admin_dashboard():
                          houses=houses,
                          peak_hours=peak_hours,
                          total_stats=total_stats,
-                         activity_logs=activity_logs)
+                         activity_logs=activity_logs,
+                         events=events,
+                         active_event=active_event,
+                         user_event_points=user_event_points,
+                         house_event_points=house_event_points)
 
 @app.route('/admin-dashboard/delete-user', methods=['POST'])
 @login_required
@@ -499,6 +546,204 @@ def delete_user():
     
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin-dashboard/add-event', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def add_event():
+    try:
+        name = request.form.get('name')
+        description = request.form.get('description')
+        start_date_str = request.form.get('start_date')
+        end_date_str = request.form.get('end_date')
+        
+        # Validate input
+        if not name or not start_date_str or not end_date_str:
+            flash('Name, start date, and end date are required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Parse dates
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        
+        # Validate dates
+        if end_date < start_date:
+            flash('End date must be after start date', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Create new event
+        new_event = Event(
+            name=name,
+            description=description,
+            start_date=start_date,
+            end_date=end_date,
+            is_active=False  # New events are inactive by default
+        )
+        
+        db.session.add(new_event)
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'Event Created', f'Created new event: {name}')
+        flash(f'Event "{name}" has been created successfully', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error adding event: {str(e)}")
+        flash('An error occurred while creating the event', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/edit-event', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def edit_event():
+    try:
+        event_id = request.form.get('event_id')
+        name = request.form.get('name')
+        description = request.form.get('description')
+        start_date_str = request.form.get('start_date')
+        end_date_str = request.form.get('end_date')
+        
+        # Validate input
+        if not event_id or not name or not start_date_str or not end_date_str:
+            flash('All fields are required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Find the event
+        event = Event.query.get_or_404(int(event_id))
+        
+        # Parse dates
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        
+        # Validate dates
+        if end_date < start_date:
+            flash('End date must be after start date', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Update event
+        event.name = name
+        event.description = description
+        event.start_date = start_date
+        event.end_date = end_date
+        
+        db.session.commit();
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'Event Updated', f'Updated event: {name}')
+        flash(f'Event "{name}" has been updated successfully', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating event: {str(e)}")
+        flash('An error occurred while updating the event', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/toggle-event', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def toggle_event():
+    try:
+        event_id = request.form.get('event_id')
+        if not event_id:
+            flash('Event ID is required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Find the event
+        event = Event.query.get_or_404(int(event_id))
+        
+        # Toggle active status
+        if not event.is_active:
+            # Check for any existing active events
+            current_active_events = Event.query.filter_by(is_active=True).all()
+            
+            if current_active_events:
+                # Log which events are being deactivated
+                for active_event in current_active_events:
+                    log_activity(app, current_user.id, 'Event Deactivated', 
+                                f'Event "{active_event.name}" automatically deactivated when activating "{event.name}"')
+                    app.logger.info(f'Auto-deactivating event: {active_event.name} (ID: {active_event.id})')
+                
+                # Deactivate all other events
+                Event.query.filter_by(is_active=True).update({'is_active': False})
+                app.logger.info(f'Successfully deactivated {len(current_active_events)} existing active events')
+            
+            # Activate this event
+            event.is_active = True
+            status_change = "activated"
+            flash_class = "success"
+            
+            # Note: No longer resetting points - instead will display event-specific points
+            
+        else:
+            # Deactivate this event
+            event.is_active = False
+            status_change = "deactivated"
+            flash_class = "warning"
+        
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, f'Event {status_change.capitalize()}', f'{event.name} {status_change}')
+        
+        if status_change == "activated":
+            flash(f'Event "{event.name}" has been activated. Points display will show only points accumulated during this event.', flash_class)
+        else:
+            flash(f'Event "{event.name}" has been deactivated. Points display now shows all-time points.', flash_class)
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error toggling event: {str(e)}")
+        flash('An error occurred while updating the event status', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/delete-event', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def delete_event():
+    try:
+        event_id = request.form.get('event_id')
+        if not event_id:
+            flash('Event ID is required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Find the event
+        event = Event.query.get_or_404(int(event_id))
+        
+        # Store name for confirmation message
+        event_name = event.name
+        
+        # Don't allow deleting active events
+        if event.is_active:
+            flash('Cannot delete an active event. Please deactivate it first.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Delete the event
+        db.session.delete(event)
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'Event Deleted', f'Deleted event: {event_name}')
+        flash(f'Event "{event_name}" has been deleted', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error deleting event: {str(e)}")
+        flash('An error occurred while deleting the event', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+
 @app.route('/log_climb', methods=['POST'])
 @login_required
 @limiter.limit("200 per minute")
@@ -527,20 +772,29 @@ def log_climb():
 
         # Create climb log
         log = ClimbLog(user_id=current_user.id, flights=flights, points=points, notes=notes)
-
-        # Update user stats
-        current_user.total_flights += flights
-        current_user.total_points += points
-
-        # Update house points
-        house = House.query.filter_by(name=current_user.house).first()
-        if not house:
-            raise ValueError('Invalid house association')
-
-        house.total_points += points
-        house.total_flights += flights
-
         db.session.add(log)
+
+        # Check if we should award points (based on active event)
+        if should_award_points():
+            # Update user stats
+            current_user.total_flights += flights
+            current_user.total_points += points
+
+            # Update house points
+            house = House.query.filter_by(name=current_user.house).first()
+            if house:
+                house.total_points += points
+                house.total_flights += flights
+        else:
+            # If we're outside the event period, record the activity but don't award points
+            app.logger.info(f"Activity logged but no points awarded (outside active event): {flights} flights by user {current_user.id}")
+            flash_message = "Your activity has been logged, but points are only awarded during active events."
+            flash(flash_message, 'warning')
+            
+            # Commit the log entry only
+            db.session.commit()
+            return redirect(url_for('dashboard'))
+
         db.session.commit()
 
         # Add multiplier info to the message if applicable
@@ -850,8 +1104,11 @@ def upload_standing_screenshot():
                 multiplier = get_points_multiplier()
                 points = incremental_minutes * multiplier
                 
+                # Set notes to None for screenshot uploads
+                notes = None
+                
                 # Log the standing time
-                log = StandingLog(user_id=current_user.id, minutes=minutes, points=points)
+                log = StandingLog(user_id=current_user.id, minutes=minutes, points=points, notes=notes)
                 
                 # Update user stats with only the incremental minutes
                 current_user.total_standing_time += incremental_minutes
@@ -1040,6 +1297,14 @@ def utility_processor():
     def get_house_count():
         return House.query.count()
     
+    # Add event information
+    active_event = get_active_event()
+    
+    # Get user event points if logged in and event is active
+    user_event_points = None
+    if current_user.is_authenticated and active_event and not current_user.is_admin:
+        user_event_points = get_event_points(user_id=current_user.id)
+    
     # Add peak hour information to all templates
     is_peak, multiplier, peak_name = get_current_peak_hour_info()
     return {
@@ -1048,7 +1313,9 @@ def utility_processor():
         'peak_hour_multiplier': multiplier,
         'peak_hour_name': peak_name,
         'peak_hours_message': get_peak_hours_message(),
-        'sanitize': sanitize_input  # Add sanitize function to all templates
+        'sanitize': sanitize_input,  # Add sanitize function to all templates
+        'active_event': active_event,
+        'user_event_points': user_event_points
     }
 
 @login_manager.user_loader
@@ -1104,10 +1371,18 @@ if __name__ == '__main__':
             print("Admin user credentials updated")
         else:
             print("Admin user already exists")
+            
+        # Start background sync tasks
+        from background_tasks import start_background_tasks
+        start_background_tasks()
     
     # Use debug mode from environment variable and set port to 5000
     debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
     app.run(debug=debug_mode, port=5001)
+
+def get_leaderboard(limit=10):
+    """Get top users ordered by total points, excluding admins"""
+    return User.query.filter(User.is_admin == False).order_by(User.total_points.desc()).limit(limit).all()
 
 @app.route('/dashboard')
 @login_required
@@ -1118,11 +1393,39 @@ def dashboard():
         flash('Admin users should use the Admin Dashboard', 'info')
         return redirect(url_for('admin_dashboard'))
     
+    # Check if there's an active event
+    active_event = get_active_event()
+    
     # Get house data for the leaderboard
     houses = House.query.order_by(House.total_points.desc()).all()
     
-    # Get player leaderboard data
-    leaderboard = get_leaderboard(limit=10)  # Get top 10 users
+    # If there's an active event, get event-specific points for each house
+    house_event_points = {}
+    active_event_points_for_user = {}  # NEW: Dictionary to store event points for each user
+    
+    if active_event:
+        for house in houses:
+            house_event_points[house.name] = get_event_points(house_name=house.name)
+    
+        # For events, we need to calculate the leaderboard dynamically
+        all_users = User.query.filter(User.is_admin == False).all()
+        user_points = []
+        for user in all_users:
+            event_points = get_event_points(user_id=user.id)
+            if event_points:
+                # NEW: Store the complete event points data for this user
+                active_event_points_for_user[user.id] = event_points
+                user_points.append({
+                    'user': user,
+                    'points': event_points['total_points']
+                })
+        # Sort by event points
+        user_points.sort(key=lambda x: x['points'], reverse=True)
+        # Take top 10
+        leaderboard = [item['user'] for item in user_points[:10]]
+    else:
+        # Regular leaderboard
+        leaderboard = get_leaderboard(limit=10)  # Get top 10 users
     
     # Get recent logs for the current user
     recent_climb_logs = ClimbLog.query.filter_by(user_id=current_user.id)\
@@ -1176,101 +1479,70 @@ def dashboard():
                            recent_climb_logs=recent_climb_logs,
                            recent_standing_logs=recent_standing_logs,
                            recent_steps_logs=recent_steps_logs,
-                           leaderboard=leaderboard)  # Add leaderboard data
+                           leaderboard=leaderboard,
+                           active_event=active_event,
+                           house_event_points=house_event_points,
+                           active_event_points_for_user=active_event_points_for_user)  # NEW: Pass the dictionary to template
 
-@app.route('/analytics-dashboard')
-@login_required
-@admin_required
-def analytics_dashboard():
-    """Analytics dashboard for administrators"""
-    # Verify admin status again as an extra precaution
-    if not current_user.is_admin:
-        log_access_attempt(False, "Analytics Dashboard", "Non-admin access attempt")
-        flash('Access denied. Admin privileges required.', 'danger')
+@app.route('/google_fit_callback')
+def google_fit_callback():
+    # Get the authorization code from the callback
+    code = request.args.get('code')
+    if not code:
+        flash('Authentication failed. Please try again.', 'danger')
         return redirect(url_for('dashboard'))
     
-    houses = House.query.order_by(House.name).all()
-    
-    # Get all logs for reference (if needed)
-    climb_logs = ClimbLog.query.order_by(ClimbLog.timestamp.desc()).limit(1000).all()
-    standing_logs = StandingLog.query.order_by(StandingLog.timestamp.desc()).limit(1000).all()
-    steps_logs = StepLog.query.order_by(StepLog.timestamp.desc()).limit(1000).all()
-    
-    # Prepare data for charts
-    house_names = [house.name for house in houses]
-    
-    # Define colors for each house
-    house_colors = {
-        'Black': 'rgba(51, 51, 51, 0.8)',
-        'Blue': 'rgba(0, 102, 204, 0.8)',
-        'Green': 'rgba(0, 153, 51, 0.8)',
-        'White': 'rgba(248, 249, 250, 0.8)',
-        'Gold': 'rgba(255, 204, 0, 0.8)',
-        'Purple': 'rgba(102, 0, 153, 0.8)'
-    }
-    
-    house_colors_list = [house_colors.get(name, 'rgba(150, 150, 150, 0.8)') for name in house_names]
-    
-    # Prepare climbing data
-    climbing_data = {
-        'flights': [house.total_flights for house in houses],
-        'points': [house.total_flights * 10 for house in houses]
-    }
-    
-    # Prepare standing data
-    standing_data = {
-        'minutes': [getattr(house, 'total_standing_time', 0) for house in houses],
-        'points': [getattr(house, 'total_standing_time', 0) for house in houses]
-    }
-    
-    # Prepare steps data
-    steps_data = {
-        'steps': [getattr(house, 'total_steps', 0) for house in houses],
-        'points': [getattr(house, 'total_steps', 0) // 100 for house in houses]
-    }
-    
-    # Prepare combined data
-    combined_data = {
-        'climbing_points': [house.total_flights * 10 for house in houses],
-        'standing_points': [getattr(house, 'total_standing_time', 0) for house in houses],
-        'steps_points': [getattr(house, 'total_steps', 0) // 100 for house in houses],
-        'total_points': [house.total_points for house in houses]
-    }
-    
-    # Get activity by house
-    house_activity = {}
-    for house in houses:
-        house_activity[house.name] = {
-            'flights': house.total_flights,
-            'standing_time': house.total_standing_time,
-            'steps': house.total_steps if hasattr(house, 'total_steps') else 0,
-            'points': house.total_points,
-            'member_count': house.member_count
-        }
-    log_access_attempt(True, "Analytics Dashboard", "Admin access successful")
-    return render_template('analytics_dashboard.html',
-                         houses=houses,
-                         house_names=house_names,
-                         house_colors=house_colors_list,
-                         climbing_data=climbing_data,
-                         standing_data=standing_data,
-                         steps_data=steps_data,
-                         combined_data=combined_data,
-                         climb_logs=climb_logs,
-                         standing_logs=standing_logs,
-                         steps_logs=steps_logs,
-                         house_activity=house_activity)
+    try:
+        # Exchange the code for tokens
+        client_id = os.environ.get('GOOGLE_CLIENT_ID')
+        client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+        redirect_uri = os.environ.get('GOOGLE_FIT_REDIRECT_URI')
+        
+        response = requests.post(
+            'https://oauth2.googleapis.com/token',
+            data={
+                'client_id': client_id,
+                'client_secret': client_secret,
+                'code': code,
+                'grant_type': 'authorization_code',
+                'redirect_uri': redirect_uri
+            }
+        )
+        
+        if response.status_code != 200:
+            app.logger.error(f"Google OAuth error: {response.status_code} - {response.text}")
+            flash('Failed to authenticate with Google Fit. Please try again.', 'danger')
+            return redirect(url_for('dashboard'))
+        
+        data = response.json()
+        
+        # Store tokens in user model
+        current_user.google_fit_token = data.get('access_token')
+        current_user.google_refresh_token = data.get('refresh_token')
+        expires_in = data.get('expires_in', 3600)
+        current_user.google_token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        
+        db.session.commit()
+        
+        # Log success
+        log_activity(app, current_user.id, 'Google Fit Connected', 'Google Fit account connected successfully')
+        flash('Google Fit connected successfully! Your steps will be synced automatically.', 'success')
+        
+        # Perform initial sync
+        from background_tasks import sync_google_fit_for_user
+        sync_google_fit_for_user(current_user)
+        
+        return redirect(url_for('dashboard'))
+    except Exception as e:
+        app.logger.error(f"Google Fit callback error: {str(e)}")
+        flash('An error occurred while connecting to Google Fit', 'danger')
+        return redirect(url_for('dashboard'))
 
-# Google Fit Configuration
-GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
-GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
-GOOGLE_FIT_REDIRECT_URI = os.getenv('GOOGLE_FIT_REDIRECT_URI')
-GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.activity.read"
-
-@app.route('/get_google_fit_steps')
+@app.route('/get_google_fit_steps', methods=['GET'])
 @login_required
 def get_google_fit_steps():
-    access_token = session.get('google_fit_token')
+    # Get token from user model instead of session
+    access_token = current_user.google_fit_token
     if not access_token:
         return jsonify({"error": "Google Fit not linked"}), 401
 
@@ -1314,467 +1586,561 @@ def get_google_fit_steps():
                     for value in point.get("value", []):
                         total_steps_today += value.get("intVal", 0)
 
-        return jsonify({"steps": total_steps_today})
+        # Add success flag to indicate request was successful
+        return jsonify({"success": True, "steps": total_steps_today})
 
     except Exception as e:
         app.logger.error(f"Error fetching Google Fit steps: {str(e)}")
         return jsonify({"error": "An error occurred while fetching steps"}), 500
-    
+
 @app.route('/google_fit_auth')
 @login_required
 def google_fit_auth():
-    if not GOOGLE_CLIENT_ID or not GOOGLE_FIT_REDIRECT_URI:
-        flash("Google Fit is not configured. Please contact the administrator.", "danger")
-        return redirect(url_for('unified_dashboard'))
-
-    params = {
-        "response_type": "code",
-        "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
-        "scope": GOOGLE_FIT_SCOPE,
-        "access_type": "offline",
-        "prompt": "consent"
-    }
-    auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+    """Initialize Google Fit OAuth flow"""
+    # Create a random state token to prevent request forgery
+    state = secrets.token_urlsafe(16)
+    session['google_oauth_state'] = state
+    
+    # Get credentials from environment variables
+    client_id = os.environ.get('GOOGLE_CLIENT_ID')
+    redirect_uri = os.environ.get('GOOGLE_FIT_REDIRECT_URI')
+    
+    if not client_id or not redirect_uri:
+        flash('Google Fit integration is not properly configured.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    # Define scope for Google Fit API access
+    scopes = [
+        'https://www.googleapis.com/auth/fitness.activity.read',
+        'https://www.googleapis.com/auth/fitness.location.read'
+    ]
+    
+    # Build authorization URL
+    auth_url = (
+        'https://accounts.google.com/o/oauth2/auth'
+        f'?client_id={client_id}'
+        f'&redirect_uri={redirect_uri}'
+        f'&scope={"+".join(scopes)}'
+        '&response_type=code'
+        '&access_type=offline'
+        '&prompt=consent'  # Force to always get refresh token
+        f'&state={state}'
+    )
+    
+    # Log the authorization attempt
+    log_activity(app, current_user.id, 'Google Fit Auth', 'Started Google Fit authorization')
+    
+    # Redirect user to Google's OAuth consent page
     return redirect(auth_url)
-
-@app.route('/google_fit_callback')
-@login_required
-def google_fit_callback():
-    code = request.args.get('code')
-    error = request.args.get('error')
-    if error:
-        flash(f"Google Fit authorization failed: {error}", "danger")
-        return redirect(url_for('unified_dashboard'))
-    if not code:
-        flash("No authorization code received from Google.", "danger")
-        return redirect(url_for('unified_dashboard'))
-
-    # Exchange code for token
-    token_url = "https://oauth2.googleapis.com/token"
-    data = {
-        "code": code,
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-        "redirect_uri": GOOGLE_FIT_REDIRECT_URI,
-        "grant_type": "authorization_code"
-    }
-    try:
-        r = requests.post(token_url, data=data, timeout=10)
-        if r.status_code != 200:
-            flash("Failed to get Google Fit token.", "danger")
-            return redirect(url_for('unified_dashboard'))
-        token_info = r.json()
-        access_token = token_info.get("access_token")
-        if not access_token:
-            flash("Failed to get Google Fit access token.", "danger")
-            return redirect(url_for('unified_dashboard'))
-        session['google_fit_token'] = access_token
-        flash("Google Fit account linked successfully!", "success")
-    except Exception as e:
-        flash("An error occurred while linking Google Fit.", "danger")
-    return redirect(url_for('unified_dashboard'))
-
-GARMIN_CLIENT_ID = os.getenv('GARMIN_CLIENT_ID')
-GARMIN_CLIENT_SECRET = os.getenv('GARMIN_CLIENT_SECRET')
-GARMIN_REDIRECT_URI = os.getenv('GARMIN_REDIRECT_URI')
 
 @app.route('/garmin_auth')
 @login_required
 def garmin_auth():
-    # Generate code_verifier and code_challenge
-    code_verifier = pkce.generate_code_verifier(length=128)
-    code_challenge = pkce.get_code_challenge(code_verifier)
-    session['garmin_code_verifier'] = code_verifier
-
-    params = {
-        "response_type": "code",
-        "client_id": GARMIN_CLIENT_ID,
-        "redirect_uri": GARMIN_REDIRECT_URI,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-        "state": secrets.token_urlsafe(16)
-    }
-    auth_url = "https://connect.garmin.com/oauth2Confirm?" + urlencode(params)
-    return redirect(auth_url)
+    """Initialize Garmin Connect OAuth flow using PKCE"""
+    try:
+        # Get credentials from environment variables
+        client_id = os.environ.get('GARMIN_CLIENT_ID')
+        redirect_uri = os.environ.get('GARMIN_REDIRECT_URI')
+        
+        if not client_id or not redirect_uri:
+            app.logger.error("Garmin Connect integration is not properly configured")
+            flash('Garmin Connect integration is not properly configured.', 'danger')
+            return redirect(url_for('dashboard'))
+        
+        # Generate PKCE code verifier and challenge
+        code_verifier = pkce.generate_code_verifier(length=128)
+        code_challenge = pkce.get_code_challenge(code_verifier)
+        
+        # Store code verifier in session for later use
+        session['garmin_code_verifier'] = code_verifier
+        
+        # Generate state parameter to prevent CSRF
+        state = secrets.token_urlsafe(16)
+        session['garmin_oauth_state'] = state
+        
+        # Build authorization URL
+        auth_url = (
+            "https://connectapi.garmin.com/di-oauth2-service/oauth/authorize"
+            f"?client_id={client_id}"
+            f"&redirect_uri={redirect_uri}"
+            "&response_type=code"
+            f"&code_challenge={code_challenge}"
+            "&code_challenge_method=S256"
+            f"&state={state}"
+            "&scope=activity:read,activity:write"
+        )
+        
+        # Log the authorization attempt
+        log_activity(app, current_user.id, 'Garmin Auth', 'Started Garmin Connect authorization')
+        
+        # Redirect user to Garmin's OAuth consent page
+        return redirect(auth_url)
+    except Exception as e:
+        app.logger.error(f"Garmin auth initialization error: {str(e)}")
+        flash('An error occurred while connecting to Garmin Connect', 'danger')
+        return redirect(url_for('dashboard'))
 
 @app.route('/garmin_callback')
 @login_required
 def garmin_callback():
-    code = request.args.get('code')
-    error = request.args.get('error')
-    if error:
-        flash(f"Garmin authorization failed: {error}", "danger")
-        return redirect(url_for('unified_dashboard'))
-    if not code:
-        flash("No authorization code received from Garmin.", "danger")
-        return redirect(url_for('unified_dashboard'))
-
-    code_verifier = session.get('garmin_code_verifier')
-    if not code_verifier:
-        flash("Missing PKCE code verifier. Please try again.", "danger")
-        return redirect(url_for('unified_dashboard'))
-
-    token_url = "https://connectapi.garmin.com/di-oauth2-service/oauth/token"
-    data = {
-        "grant_type": "authorization_code",
-        "client_id": GARMIN_CLIENT_ID,
-        "client_secret": GARMIN_CLIENT_SECRET,
-        "code": code,
-        "code_verifier": code_verifier,
-        "redirect_uri": GARMIN_REDIRECT_URI
-    }
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    """Handle Garmin Connect OAuth callback"""
     try:
-        r = requests.post(token_url, data=data, headers=headers, timeout=10)
-        if r.status_code != 200:
-            flash("Failed to get Garmin access token.", "danger")
-            return redirect(url_for('unified_dashboard'))
-        token_info = r.json()
+        # Check for error
+        error = request.args.get('error')
+        if error:
+            app.logger.error(f"Garmin authorization failed: {error}")
+            flash(f"Garmin authorization failed: {error}", "danger")
+            return redirect(url_for('dashboard'))
+        
+        # Get authorization code
+        code = request.args.get('code')
+        if not code:
+            app.logger.error("No authorization code received from Garmin")
+            flash("No authorization code received from Garmin", "danger")
+            return redirect(url_for('dashboard'))
+        
+        # Verify state to prevent CSRF
+        state = request.args.get('state')
+        stored_state = session.get('garmin_oauth_state')
+        if not state or state != stored_state:
+            app.logger.warning("Garmin OAuth state mismatch - possible CSRF attack")
+            flash("Authentication failed - security verification failed", "danger")
+            return redirect(url_for('dashboard'))
+        
+        # Get PKCE code verifier from session
+        code_verifier = session.get('garmin_code_verifier')
+        if not code_verifier:
+            app.logger.error("Missing PKCE code verifier for Garmin authentication")
+            flash("Authentication session expired. Please try again.", "danger")
+            return redirect(url_for('dashboard'))
+        
+        # Get credentials from environment variables
+        client_id = os.environ.get('GARMIN_CLIENT_ID')
+        client_secret = os.environ.get('GARMIN_CLIENT_SECRET')
+        redirect_uri = os.environ.get('GARMIN_REDIRECT_URI')
+        
+        if not client_id or not client_secret or not redirect_uri:
+            app.logger.error("Garmin Connect integration is not properly configured")
+            flash("Garmin Connect integration is not properly configured", "danger")
+            return redirect(url_for('dashboard'))
+        
+        # Exchange the authorization code for tokens
+        token_url = "https://connectapi.garmin.com/oauth-service/oauth/token"
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": code,
+            "code_verifier": code_verifier,
+            "redirect_uri": redirect_uri
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        
+        response = requests.post(token_url, data=data, headers=headers, timeout=10)
+        
+        if response.status_code != 200:
+            app.logger.error(f"Failed to get Garmin access token: {response.status_code} - {response.text}")
+            flash("Failed to connect to Garmin. Please try again later.", "danger")
+            return redirect(url_for('dashboard'))
+        
+        # Parse token response
+        token_info = response.json()
+        
+        # Store tokens in session or database
         session['garmin_access_token'] = token_info.get("access_token")
         session['garmin_refresh_token'] = token_info.get("refresh_token")
-        flash("Garmin account linked successfully!", "success")
-    except Exception as e:
-        flash("An error occurred while linking Garmin.", "danger")
-    return redirect(url_for('unified_dashboard'))
-
+        expires_in = token_info.get("expires_in", 3600)
+        
+        # Store token expiry
+        session['garmin_token_expiry'] = datetime.now(timezone.utc).timestamp() + expires_in
+        
+        # Store in user model if needed
+        if hasattr(current_user, 'garmin_access_token'):
+            current_user.garmin_access_token = token_info.get("access_token")
+            current_user.garmin_refresh_token = token_info.get("refresh_token")
+            current_user.garmin_token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            db.session.commit()
+        
+        # Log the successful connection
+        log_activity(app, current_user.id, 'Garmin Connected', 'Garmin Connect account connected successfully')
+        flash("Garmin Connect account linked successfully!", "success")
+        
+        # Clear OAuth session data
+        session.pop('garmin_code_verifier', None)
+        session.pop('garmin_oauth_state', None)
+        
+        return redirect(url_for('dashboard'))
     
+    except Exception as e:
+        app.logger.error(f"Error in Garmin callback: {str(e)}")
+        flash("An error occurred while connecting to Garmin. Please try again.", "danger")
+        return redirect(url_for('dashboard'))
+
 @app.route('/get_garmin_steps')
 @login_required
 def get_garmin_steps():
-    access_token = session.get('garmin_access_token')
-    if not access_token:
-        return jsonify({"error": "Garmin not linked"}), 401
-
-    from datetime import datetime, timedelta
-
-    now = datetime.utcnow()
-    start_of_day = datetime(now.year, now.month, now.day)
-    end_of_day = start_of_day + timedelta(days=1)
-
-    # Use seconds, not milliseconds!
-    start_time_seconds = int(start_of_day.timestamp())
-    end_time_seconds = int(end_of_day.timestamp())
-
-    url = f'https://apis.garmin.com/wellness-api/rest/dailies?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
-    headers = {"Authorization": f"Bearer {access_token}"}
-
+    """Get steps data from Garmin Connect for the current day"""
     try:
+        access_token = session.get('garmin_access_token')
+        if not access_token:
+            app.logger.warning("Garmin not linked for user trying to get steps data")
+            return jsonify({"error": "Garmin not linked"}), 401
+
+        # Calculate time range for today
+        now = datetime.utcnow()
+        start_of_day = datetime(now.year, now.month, now.day)
+        end_of_day = start_of_day + timedelta(days=1)
+
+        # Use seconds, not milliseconds
+        start_time_seconds = int(start_of_day.timestamp())
+        end_time_seconds = int(end_of_day.timestamp())
+
+        url = f'https://apis.garmin.com/wellness-api/rest/dailies?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
+        headers = {"Authorization": f"Bearer {access_token}"}
+
         r = requests.get(url, headers=headers, timeout=10)
-        #app.logger.info(f"Garmin API status: {r.status_code}, response: {r.text}")
-        if r.status_code != 200:
-            return jsonify({"error": "Failed to fetch Garmin data"}), 400
+        app.logger.debug(f"Garmin API status: {r.status_code}")
+        
+        if r.status_code == 401:
+            # Token expired or invalid
+            app.logger.warning("Garmin access token expired or invalid")
+            return jsonify({"error": "Authentication expired. Please reconnect your Garmin account."}), 401
+        elif r.status_code != 200:
+            app.logger.error(f"Garmin API error: {r.status_code} - {r.text}")
+            return jsonify({"error": "Failed to fetch Garmin data"}), r.status_code
+        
         data = r.json()
         steps = data[0].get('steps', 0) if data else 0
         stairs = data[0].get('floorsClimbed', 0) if data else 0
-        return jsonify({"steps": steps, "stairs": stairs})
-    except Exception as e:
-        app.logger.error(f"Garmin fetch error: {e}")
-        return jsonify({"error": "An error occurred while fetching Garmin data"}), 500
         
-
-from datetime import datetime, timedelta
+        # Log success
+        log_activity(app, current_user.id, 'Garmin Data Fetched', f'Retrieved {steps} steps and {stairs} stairs')
+        return jsonify({"steps": steps, "stairs": stairs})
+    
+    except requests.exceptions.Timeout:
+        app.logger.error("Timeout while connecting to Garmin API")
+        return jsonify({"error": "Connection to Garmin timed out. Please try again."}), 504
+    except requests.exceptions.ConnectionError:
+        app.logger.error("Connection error while connecting to Garmin API")
+        return jsonify({"error": "Connection to Garmin failed. Please check your internet connection."}), 503
+    except Exception as e:
+        app.logger.error(f"Garmin fetch error: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching Garmin data"}), 500
 
 @app.route('/get_garmin_weekly')
 @login_required
 def get_garmin_weekly():
-    access_token = session.get('garmin_access_token')
+    """Get weekly data from Garmin Connect for the past 7 days"""
+    try:
+        access_token = session.get('garmin_access_token')
+        if not access_token:
+            app.logger.warning("Garmin not linked for user trying to get weekly data")
+            return jsonify({"error": "Garmin not linked"}), 401
 
-    
-    if not access_token:
-        return jsonify({"error": "Garmin not linked"}), 401
+        now = datetime.utcnow()
+        week = []
+        headers = {"Authorization": f"Bearer {access_token}"}
 
-    now = datetime.utcnow()
-    week = []
-    headers = {"Authorization": f"Bearer {access_token}"}
+        for i in range(6, -1, -1):  # 6 days ago to today
+            day = now - timedelta(days=i)
+            start_of_day = datetime(day.year, day.month, day.day)
+            end_of_day = start_of_day + timedelta(days=1)
+            start_time_seconds = int(start_of_day.timestamp())
+            end_time_seconds = int(end_of_day.timestamp())
 
-    for i in range(6, -1, -1):  # 6 days ago to today
-        day = now - timedelta(days=i)
-        start_of_day = datetime(day.year, day.month, day.day)
-        end_of_day = start_of_day + timedelta(days=1)
-        start_time_seconds = int(start_of_day.timestamp())
-        end_time_seconds = int(end_of_day.timestamp())
+            url = (
+                f'https://apis.garmin.com/wellness-api/rest/dailies'
+                f'?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
+            )
 
-        url = (
-            f'https://apis.garmin.com/wellness-api/rest/dailies'
-            f'?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
-        )
-
-        try:
-            r = requests.get(url, headers=headers, timeout=10)
-            # app.logger.info(f"Garmin API status: {r.status_code}, response: {r.text}")
-            if r.status_code != 200:
+            try:
+                r = requests.get(url, headers=headers, timeout=10)
+                
+                if r.status_code == 401:
+                    app.logger.warning("Garmin access token expired or invalid")
+                    return jsonify({"error": "Authentication expired. Please reconnect your Garmin account."}), 401
+                elif r.status_code != 200:
+                    app.logger.error(f"Garmin API error for {start_of_day.strftime('%Y-%m-%d')}: {r.status_code}")
+                    week.append({
+                        "calendarDate": start_of_day.strftime('%Y-%m-%d'),
+                        "steps": 0,
+                        "floorsClimbed": 0,
+                        "error": f"Failed to fetch data"
+                    })
+                    continue
+                
+                data = r.json()
+                if isinstance(data, list) and data:
+                    day_data = data[0]
+                    week.append({
+                        "calendarDate": day_data.get("calendarDate", start_of_day.strftime('%Y-%m-%d')),
+                        "steps": day_data.get("steps", 0),
+                        "floorsClimbed": day_data.get("floorsClimbed", 0)
+                    })
+                else:
+                    week.append({
+                        "calendarDate": start_of_day.strftime('%Y-%m-%d'),
+                        "steps": 0,
+                        "floorsClimbed": 0,
+                        "error": "No data available for this day"
+                    })
+            except requests.exceptions.Timeout:
+                app.logger.error(f"Timeout while fetching Garmin data for {start_of_day.strftime('%Y-%m-%d')}")
                 week.append({
                     "calendarDate": start_of_day.strftime('%Y-%m-%d'),
                     "steps": 0,
                     "floorsClimbed": 0,
-                    "error": f"Failed to fetch: {r.text}"
+                    "error": "Request timed out"
                 })
-                continue
-            data = r.json()
-            if isinstance(data, list) and data:
-                day_data = data[0]
-                week.append({
-                    "calendarDate": day_data.get("calendarDate", start_of_day.strftime('%Y-%m-%d')),
-                    "steps": day_data.get("steps", 0),
-                    "floorsClimbed": day_data.get("floorsClimbed", 0)
-                })
-            else:
+            except requests.exceptions.ConnectionError:
+                app.logger.error(f"Connection error while fetching Garmin data for {start_of_day.strftime('%Y-%m-%d')}")
                 week.append({
                     "calendarDate": start_of_day.strftime('%Y-%m-%d'),
                     "steps": 0,
-                    "floorsClimbed": 0
+                    "floorsClimbed": 0,
+                    "error": "Connection failed"
                 })
-        except Exception as e:
-            app.logger.error(f"Garmin weekly fetch error for {start_of_day}: {e}")
-            week.append({
-                "calendarDate": start_of_day.strftime('%Y-%m-%d'),
-                "steps": 0,
-                "floorsClimbed": 0,
-                "error": str(e)
-            })
-    week.sort(key=lambda x: x["calendarDate"])
-    return jsonify({"week": week})
+            except Exception as e:
+                app.logger.error(f"Error fetching Garmin data for {start_of_day.strftime('%Y-%m-%d')}: {str(e)}")
+                week.append({
+                    "calendarDate": start_of_day.strftime('%Y-%m-%d'),
+                    "steps": 0,
+                    "floorsClimbed": 0,
+                    "error": "An unexpected error occurred"
+                })
+        
+        # Sort by date
+        week.sort(key=lambda x: x["calendarDate"])
+        
+        # Log successful retrieval
+        log_activity(app, current_user.id, 'Garmin Weekly Data Fetched', f'Retrieved weekly data ({len(week)} days)')
+        return jsonify({"week": week})
+    
+    except Exception as e:
+        app.logger.error(f"Garmin weekly fetch error: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching Garmin weekly data"}), 500
 
-@app.route('/unified_dashboard')
+@app.route('/analytics-dashboard')
 @login_required
-def unified_dashboard():
-    houses = House.query.order_by(House.total_points.desc()).all()
-    # Add any other variables your template needs
-    return render_template('unified_dashboard.html', houses=houses, current_user=current_user)
-
-@app.route('/log_google_fit_steps', methods=['POST'])
-@login_required
-def log_google_fit_steps():
-    access_token = session.get('google_fit_token')
-    if not access_token:
-        return jsonify({"success": False, "error": "Google Fit not linked"}), 401
-
-    # Get today's start and end time in milliseconds
-    from datetime import datetime, timedelta
-
-    now = datetime.utcnow()
-    start_of_day = datetime(now.year, now.month, now.day)
-    end_of_day = start_of_day + timedelta(days=1)
-
-    start_time_millis = int(start_of_day.timestamp() * 1000)
-    end_time_millis = int(end_of_day.timestamp() * 1000)
-
-    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    body = {
-        "aggregateBy": [{
-            "dataTypeName": "com.google.step_count.delta",
-            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
-        }],
-        "bucketByTime": { "durationMillis": 86400000 },
-        "startTimeMillis": start_time_millis,
-        "endTimeMillis": end_time_millis
-    }
-
+@admin_required
+def analytics_dashboard():
+    """Analytics dashboard for admin users to view usage statistics"""
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        log_access_attempt(False, "Analytics Dashboard", "Non-admin access attempt")
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('dashboard'))
+        
+    # Check if there's an active event
+    active_event = get_active_event()
+    
+    # Get data for analytics
     try:
-        r = requests.post(url, headers=headers, json=body, timeout=10)
-        if r.status_code != 200:
-            app.logger.error(f"Google Fit API error: {r.status_code} - {r.text}")
-            return jsonify({"success": False, "error": "Failed to fetch Google Fit data"}), 400
-
-        data = r.json()
-        total_steps_today = 0
-        buckets = data.get("bucket", [])
-        for bucket in buckets:
-            for dataset in bucket.get("dataset", []):
-                for point in dataset.get("point", []):
-                    for value in point.get("value", []):
-                        total_steps_today += value.get("intVal", 0)
-
-        # Get today's existing steps
-        today_start = start_of_day.replace(tzinfo=timezone.utc)
-        today_end = end_of_day.replace(tzinfo=timezone.utc)
+        # Get total user count
+        total_users = User.query.filter(User.is_admin == False).count()
         
-        # Find the user's most recent log for today
-        latest_log = StepLog.query.filter(
-            StepLog.user_id == current_user.id,
-            StepLog.timestamp >= today_start,
-            StepLog.timestamp < today_end
-        ).order_by(StepLog.steps.desc()).first()
+        # Get active users (users who logged in within the last 30 days)
+        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+        active_users = User.query.filter(
+            User.is_admin == False,
+            User.last_login >= thirty_days_ago
+        ).count()
         
-        # Calculate incremental steps (avoid double counting)
-        existing_steps = latest_log.steps if latest_log else 0
-        incremental_steps = max(0, total_steps_today - existing_steps)
+        # Prepare house stats and query filters based on active event
+        houses = House.query.all()
+        house_stats = []
         
-        if incremental_steps > 0:
-            # Calculate points (1 point per 100 steps)
-            multiplier = get_points_multiplier()
-            points = (incremental_steps // 100) * multiplier
+        # Prepare query filters based on active event
+        if active_event:
+            # For an active event, we need to filter logs by the event time period
+            # Ensure event dates are timezone-aware
+            event_start = active_event.start_date
+            event_end = active_event.end_date
             
-            # Create step log
-            log = StepLog(
-                user_id=current_user.id, 
-                steps=total_steps_today, 
-                points=points,
-                notes="Google Fit Integration"
-            )
+            if event_start.tzinfo is None:
+                event_start = event_start.replace(tzinfo=timezone.utc)
+            if event_end.tzinfo is None:
+                event_end = event_end.replace(tzinfo=timezone.utc)
+                
+            climb_query_filter = ClimbLog.timestamp.between(event_start, event_end)
+            standing_query_filter = StandingLog.timestamp.between(event_start, event_end)
+            steps_query_filter = StepLog.timestamp.between(event_start, event_end)
             
-            # Update user stats
-            if hasattr(current_user, 'total_steps'):
-                current_user.total_steps += incremental_steps
-                current_user.total_points += points
-
-                # Update house points
-                house = House.query.filter_by(name=current_user.house).first()
-                if house:
-                    house.total_points += points
-                    if hasattr(house, 'total_steps'):
-                        house.total_steps += incremental_steps
-
-                db.session.add(log)
-                db.session.commit()
+            # Get event-specific points for each house
+            house_event_points = {}
+            for house in houses:
+                house_event_points[house.name] = get_event_points(house_name=house.name)
+        else:
+            # For all-time stats, no time filter is needed
+            climb_query_filter = True
+            standing_query_filter = True
+            steps_query_filter = True
+            house_event_points = None
+        
+        # Get total activities per type (filtered by event period if an event is active)
+        total_climbs = db.session.query(func.count(ClimbLog.id)).filter(climb_query_filter).scalar() or 0
+        total_standings = db.session.query(func.count(StandingLog.id)).filter(standing_query_filter).scalar() or 0
+        total_step_logs = db.session.query(func.count(StepLog.id)).filter(steps_query_filter).scalar() or 0
+        
+        # Get house activity distribution
+        for house in houses:
+            house_users = User.query.filter_by(house=house.name).all()
+            user_ids = [user.id for user in house_users]
+            
+            if user_ids:  # Only query if there are users in the house
+                # Apply event time filter if there's an active event
+                climbs = db.session.query(func.count(ClimbLog.id)).filter(
+                    ClimbLog.user_id.in_(user_ids),
+                    climb_query_filter
+                ).scalar() or 0
                 
-                # Add multiplier info to the message if applicable
-                multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                log_activity(app, current_user.id, 'Google Fit Steps Logged', f'{incremental_steps} steps{multiplier_text}')
+                standings = db.session.query(func.count(StandingLog.id)).filter(
+                    StandingLog.user_id.in_(user_ids),
+                    standing_query_filter
+                ).scalar() or 0
                 
-                return jsonify({
-                    "success": True, 
-                    "steps": total_steps_today,
-                    "incremental_steps": incremental_steps,
-                    "points": points
-                })
+                steps = db.session.query(func.count(StepLog.id)).filter(
+                    StepLog.user_id.in_(user_ids),
+                    steps_query_filter
+                ).scalar() or 0
             else:
-                return jsonify({"success": False, "error": "Steps tracking not available"}), 400
-        else:
-            return jsonify({"success": True, "message": "No new steps to log"})
-
-    except Exception as e:
-        app.logger.error(f"Error logging Google Fit steps: {str(e)}")
-        return jsonify({"success": False, "error": "An error occurred while processing steps"}), 500
-
-@app.route('/log_garmin_data', methods=['POST'])
-@login_required
-def log_garmin_data():
-    access_token = session.get('garmin_access_token')
-    if not access_token:
-        return jsonify({"success": False, "error": "Garmin not linked"}), 401
-
-    from datetime import datetime, timedelta
-
-    now = datetime.utcnow()
-    start_of_day = datetime(now.year, now.month, now.day)
-    end_of_day = start_of_day + timedelta(days=1)
-
-    # Use seconds, not milliseconds!
-    start_time_seconds = int(start_of_day.timestamp())
-    end_time_seconds = int(end_of_day.timestamp())
-
-    url = f'https://apis.garmin.com/wellness-api/rest/dailies?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
-    headers = {"Authorization": f"Bearer {access_token}"}
-
-    try:
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code != 200:
-            flash("Failed to get Garmin data.", "danger")
-            return redirect(url_for('unified_dashboard'))
-        
-        data = r.json()
-        steps = data[0].get('steps', 0) if data else 0
-        stairs = data[0].get('floorsClimbed', 0) if data else 0
-        
-        today_start = start_of_day.replace(tzinfo=timezone.utc)
-        today_end = end_of_day.replace(tzinfo=timezone.utc)
-        
-        # Process steps - find today's logs
-        latest_steps_log = StepLog.query.filter(
-            StepLog.user_id == current_user.id,
-            StepLog.timestamp >= today_start,
-            StepLog.timestamp < today_end
-        ).order_by(StepLog.steps.desc()).first()
-        
-        # Process flights - find today's logs
-        latest_flights_log = ClimbLog.query.filter(
-            ClimbLog.user_id == current_user.id,
-            ClimbLog.timestamp >= today_start,
-            ClimbLog.timestamp < today_end
-        ).order_by(ClimbLog.flights.desc()).first()
-        
-        # Calculate incremental steps and flights
-        existing_steps = latest_steps_log.steps if latest_steps_log else 0
-        existing_flights = latest_flights_log.flights if latest_flights_log else 0
-        
-        incremental_steps = max(0, steps - existing_steps)
-        incremental_flights = max(0, stairs - existing_flights)
-        
-        multiplier = get_points_multiplier()
-        total_points = 0
-        
-        # Log steps if there are incremental steps
-        if incremental_steps > 0 and hasattr(current_user, 'total_steps'):
-            steps_points = (incremental_steps // 100) * multiplier
-            steps_log = StepLog(
-                user_id=current_user.id,
-                steps=steps,
-                points=steps_points,
-                notes="Garmin Connect Integration"
-            )
+                climbs = standings = steps = 0
             
-            current_user.total_steps += incremental_steps
-            current_user.total_points += steps_points
+            # Use event-specific points if an event is active
+            points = house_event_points[house.name]['total_points'] if active_event and house_event_points else house.total_points
             
-            house = House.query.filter_by(name=current_user.house).first()
-            if house:
-                house.total_points += steps_points
-                if hasattr(house, 'total_steps'):
-                    house.total_steps += incremental_steps
-            
-            db.session.add(steps_log)
-            total_points += steps_points
-            
-            # Log activity
-            multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-            log_activity(app, current_user.id, 'Garmin Steps Logged', f'{incremental_steps} steps{multiplier_text}')
-        
-        # Log flights if there are incremental flights
-        if incremental_flights > 0:
-            flights_points = incremental_flights * 10 * multiplier
-            flights_log = ClimbLog(
-                user_id=current_user.id,
-                flights=stairs,
-                points=flights_points,
-                notes="Garmin Connect Integration"
-            )
-            
-            current_user.total_flights += incremental_flights
-            current_user.total_points += flights_points
-            
-            house = House.query.filter_by(name=current_user.house).first()
-            if house:
-                house.total_points += flights_points
-                house.total_flights += incremental_flights
-            
-            db.session.add(flights_log)
-            total_points += flights_points
-            
-            # Log activity
-            multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-            log_activity(app, current_user.id, 'Garmin Stairs Logged', f'{incremental_flights} flights{multiplier_text}')
-        
-        # Commit if any changes were made
-        if incremental_steps > 0 or incremental_flights > 0:
-            db.session.commit()
-            
-            return jsonify({
-                "success": True,
-                "steps": steps,
-                "incremental_steps": incremental_steps,
-                "stairs": stairs,
-                "incremental_stairs": incremental_flights,
-                "points": total_points
+            house_stats.append({
+                'name': house.name,
+                'climbs': climbs,
+                'standings': standings,
+                'steps': steps,
+                'total_activities': climbs + standings + steps,
+                'points': points,
+                'members': house.member_count
             })
-        else:
-            return jsonify({"success": True, "message": "No new activity to log"})
+        
+        # Calculate activity distribution by day of week
+        days_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        day_stats = []
+        
+        for i, day in enumerate(days_of_week):
+            # In SQLite, weekday is 0-6 where 0 is Sunday, so we need to adjust
+            # Adjust i to match SQLite's weekday function (Sunday=0, Monday=1, etc.)
+            sqlite_day = (i + 1) % 7
             
+            # Apply event time filter if there's an active event
+            climbs = db.session.query(func.count(ClimbLog.id)).filter(
+                func.strftime('%w', ClimbLog.timestamp) == str(sqlite_day),
+                climb_query_filter
+            ).scalar() or 0
+            
+            standings = db.session.query(func.count(StandingLog.id)).filter(
+                func.strftime('%w', StandingLog.timestamp) == str(sqlite_day),
+                standing_query_filter
+            ).scalar() or 0
+            
+            steps = db.session.query(func.count(StepLog.id)).filter(
+                func.strftime('%w', StepLog.timestamp) == str(sqlite_day),
+                steps_query_filter
+            ).scalar() or 0
+            
+            day_stats.append({
+                'day': day,
+                'climbs': climbs,
+                'standings': standings,
+                'steps': steps,
+                'total': climbs + standings + steps
+            })
+        
+        # Get activity trend over last 30 days
+        trend_data = []
+        now = datetime.now(timezone.utc)  # Ensure we use timezone-aware datetime
+        
+        for i in range(30, 0, -1):
+            date = now - timedelta(days=i)
+            next_date = date + timedelta(days=1)
+            date_str = date.strftime('%Y-%m-%d')
+            
+            # Skip dates outside event period if an event is active
+            if active_event:
+                # Convert dates to aware datetimes
+                event_start = active_event.start_date
+                event_end = active_event.end_date
+                
+                if event_start.tzinfo is None:
+                    event_start = event_start.replace(tzinfo=timezone.utc)
+                if event_end.tzinfo is None:
+                    event_end = event_end.replace(tzinfo=timezone.utc)
+                
+                # Check if date is within event period
+                if date > event_end or next_date < event_start:
+                    trend_data.append({
+                        'date': date_str,
+                        'climbs': 0,
+                        'standings': 0,
+                        'steps': 0,
+                        'total': 0
+                    })
+                    continue
+                
+                # For event days, adjust range to overlap with event
+                start_range = max(date, event_start)
+                end_range = min(next_date, event_end)
+            else:
+                # For normal view, just use date ranges
+                start_range = date
+                end_range = next_date
+            
+            # Ensure dates are timezone-aware
+            if start_range.tzinfo is None:
+                start_range = start_range.replace(tzinfo=timezone.utc)
+            if end_range.tzinfo is None:
+                end_range = end_range.replace(tzinfo=timezone.utc)
+            
+            # Create SQL filters
+            date_filter = and_(
+                ClimbLog.timestamp >= start_range,
+                ClimbLog.timestamp < end_range
+            )
+            
+            date_filter_standing = and_(
+                StandingLog.timestamp >= start_range,
+                StandingLog.timestamp < end_range
+            )
+            
+            date_filter_steps = and_(
+                StepLog.timestamp >= start_range,
+                StepLog.timestamp < end_range
+            )
+            
+            # Query activity counts
+            climbs = db.session.query(func.count(ClimbLog.id)).filter(date_filter).scalar() or 0
+            standings = db.session.query(func.count(StandingLog.id)).filter(date_filter_standing).scalar() or 0
+            steps = db.session.query(func.count(StepLog.id)).filter(date_filter_steps).scalar() or 0
+            
+            trend_data.append({
+                'date': date_str,
+                'climbs': climbs,
+                'standings': standings,
+                'steps': steps,
+                'total': climbs + standings + steps
+            })
+        
+        # Log successful access
+        log_access_attempt(True, "Analytics Dashboard", "Admin access successful")
+        
+        return render_template('analytics_dashboard.html',
+                            total_users=total_users,
+                            active_users=active_users,
+                            total_climbs=total_climbs,
+                            total_standings=total_standings,
+                            total_step_logs=total_step_logs,
+                            house_stats=house_stats,
+                            day_stats=day_stats,
+                            trend_data=trend_data,
+                            active_event=active_event)
+    
     except Exception as e:
-        app.logger.error(f"Error logging Garmin data: {str(e)}")
-        return jsonify({"success": False, "error": "An error occurred while processing data"}), 500
+        app.logger.error(f"Error in analytics dashboard: {str(e)}")
+        flash('An error occurred while loading analytics data', 'danger')
+        return redirect(url_for('admin_dashboard'))
