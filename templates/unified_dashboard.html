@@ -29,6 +29,28 @@
             </div>
         </div>
 
+        <!-- New Fitness Integration Card -->
+        <div class="stats-card">
+            <div class="d-flex gap-2 mb-3">
+                <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Link Google Fit">
+                    <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
+                    <span class="ms-2">Link Google Fit</span>
+                </button>
+                <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-garmin-btn" title="Link Garmin">
+                    <img src="{{ url_for('static', filename='garmin_logo.png') }}" alt="Garmin" class="icon-img">
+                    <span class="ms-2">Link Garmin Connect</span>
+                </button>
+            </div>
+
+            <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn">
+                Log Google Fit Steps
+            </button>
+            
+            <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-garmin-steps-btn">
+                Log Garmin Steps & Stairs
+            </button>
+        </div>
+
         <!-- Activity Tabs -->
         <div class="stats-card">
             <ul class="nav nav-tabs" id="activityTabs" role="tablist">
@@ -85,58 +107,8 @@
                     </div>
                 </div>
                 
-                <!-- Steps Tab -->
+                <!-- Steps Tab - Now without the integration buttons -->
                 <div class="tab-pane fade" id="steps-content" role="tabpanel" aria-labelledby="steps-tab">
-
-                   
-                    <div class="d-flex gap-2 mb-3">
-                    <button type="button" class="btn btn-opaque-rect" id="link-google-fit-btn" title="Link Google Fit">
-                    <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
-                    <span class="ms-2">Link Google Fit</span>
-                    </button>
-                    <button type="button" class="btn btn-opaque-rect" id="link-garmin-btn" title="Link Garmin">
-                    <img src="{{ url_for('static', filename='garmin_logo.png') }}" alt="Garmin" class="icon-img">
-                    <span class="ms-2">Link Garmin Connect</span>
-                    </button>
-
-                    </div>
-                    <style>
-.btn-opaque-rect {
-    background: rgba(255,255,255,0.92);
-    border: 1px solid #d1d5db;
-    color: #222;
-    border-radius: 0.5rem;
-    padding: 0.25rem 0.8rem;
-    font-size: 0.97rem;
-    min-width: 120px;
-    min-height: 34px;
-    display: flex;
-    align-items: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    transition: background 0.2s, box-shadow 0.2s;
-}
-.btn-opaque-rect:hover {
-    background: rgba(240,240,240,0.98);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-}
-.icon-img {
-    width: 20px;
-    height: 20px;
-    display: inline-block;
-}
-</style>
-
-                    <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn">
-                    Get Google Fit Steps
-                    </button>
-                    <div id="google-fit-steps-result" class="mb-2 text-center text-muted" style="font-size: 1.1em;"></div>
-
-                
-                    <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-garmin-steps-btn">
-                     Get Garmin Steps & Stairs
-                    </button>
-                    <div id="garmin-steps-result" class="mb-2 text-center text-muted" style="font-size: 1.1em;"></div>
-
 
                     <form action="{{ url_for('log_steps') }}" method="post">
                         <div class="mb-3">
@@ -240,6 +212,41 @@
                 {% endfor %}
             </div>
         </div>
+
+        <!-- Add this section for Player Rankings -->
+        <div class="stats-card mt-4">
+            <h3>Player Rankings</h3>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Username</th>
+                            <th>House</th>
+                            <th>Flights</th>
+                            <th>Standing</th>
+                            <th>Steps</th>
+                            <th>Total Points</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in leaderboard %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ user.username }}</td>
+                            <td>
+                                <span class="house-badge {{ user.house }}">{{ user.house }}</span>
+                            </td>
+                            <td>{{ user.total_flights }}</td>
+                            <td>{{ user.total_standing_time }} min</td>
+                            <td>{{ user.total_steps|default(0) }}</td>
+                            <td><strong>{{ user.total_points }}</strong></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -296,27 +303,54 @@ document.getElementById('get-google-fit-steps-btn').onclick = function() {
 document.getElementById('link-google-fit-btn').onclick = function() {
     window.location.href = "{{ url_for('google_fit_auth') }}";
 };
-</script>
-<script>
+
 document.getElementById('link-garmin-btn').onclick = function() {
     window.location.href = "{{ url_for('garmin_auth') }}";
 };
-document.getElementById('get-garmin-steps-btn').onclick = function() {
-    const resultDiv = document.getElementById('garmin-steps-result');
-    resultDiv.textContent = "Fetching data...";
-    fetch('/get_garmin_steps')
+
+document.getElementById('get-google-fit-steps-btn').onclick = function() {
+    // Show loading state
+    this.disabled = true;
+    this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+    
+    fetch('/log_google_fit_steps', { method: 'POST' })
         .then(res => res.json())
         .then(data => {
-            if (data.steps !== undefined && data.stairs !== undefined) {
-                resultDiv.textContent = "Garmin Steps: " + data.steps + ", Stairs Climbed: " + data.stairs;
-            } else if (data.error) {
-                resultDiv.textContent = "Error: " + data.error;
+            if (data.success) {
+                window.location.reload(); // Refresh page to show updated points
             } else {
-                resultDiv.textContent = "No data received.";
+                alert("Error: " + (data.error || "Failed to log steps"));
+                this.disabled = false;
+                this.textContent = "Log Google Fit Steps";
             }
         })
         .catch(() => {
-            resultDiv.textContent = "Failed to fetch data.";
+            alert("Failed to communicate with server");
+            this.disabled = false;
+            this.textContent = "Log Google Fit Steps";
+        });
+};
+
+document.getElementById('get-garmin-steps-btn').onclick = function() {
+    // Show loading state
+    this.disabled = true;
+    this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+    
+    fetch('/log_garmin_data', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                window.location.reload(); // Refresh page to show updated points
+            } else {
+                alert("Error: " + (data.error || "Failed to log Garmin data"));
+                this.disabled = false;
+                this.textContent = "Log Garmin Steps & Stairs";
+            }
+        })
+        .catch(() => {
+            alert("Failed to communicate with server");
+            this.disabled = false;
+            this.textContent = "Log Garmin Steps & Stairs";
         });
 };
 </script>

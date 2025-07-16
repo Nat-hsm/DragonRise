@@ -74,14 +74,37 @@ class ImageAnalyzer:
                             },
                             {
                                 "type": "text",
-                                "text": "This is a screenshot from a health tracking app showing stairs climbed. Extract the exact number of flights climbed and the timestamp when this activity occurred. Reply in JSON format with two fields: 'flights' (integer) and 'timestamp' (string in format YYYY-MM-DD HH:MM). If you can't determine one of these values, set it to null."
+                                "text": """This is a screenshot from a health tracking app showing flights of stairs climbed.
+
+Analyze the image and extract the flights climbed information:
+
+1. Check if this shows a SPECIFIC DAY'S total flights climbed - it may be labeled as "TOTAL" with a specific date
+2. Extract the exact number of flights climbed for that specific day
+3. Extract the date if visible
+
+Only accept the image if:
+- It shows data for a specific single day (not an average)
+- The date is clearly visible
+
+IMPORTANT: 
+- Images showing "TOTAL" with a specific date and flights (like "TOTAL 17 floors" with date "12 Jul 2025") ARE valid and should be accepted
+- Images showing "AVERAGE" with a date range (like "AVERAGE 6 floors 6-12 Jul 2025") should be REJECTED
+- Images without a visible date should be REJECTED
+
+Format your response as a JSON with these keys:
+- "valid_data" (boolean): true only if it shows a specific day's flights with a date
+- "flights" (integer): the number of flights climbed
+- "date" (string): the date in YYYY-MM-DD format if possible
+- "error" (string): description of why the data is invalid, only if valid_data is false
+- "view_type" (string): "daily" or "weekly" or "monthly"
+"""
                             }
                         ]
                     }
                 ],
                 "temperature": 0.2
             }
-            
+        
             # Use the specific model directly without fallbacks
             response = None
             try:
@@ -119,20 +142,75 @@ class ImageAnalyzer:
                 json_match = re.search(r'(\{.*?\})', text_content, re.DOTALL)
                 if json_match:
                     result_json = json.loads(json_match.group(1))
+                    
+                    # Check if this is valid flight data for a specific day
+                    if result_json.get('valid_data', False):
+                        flights = int(result_json.get('flights', 0))
+                        date = result_json.get('date')
+                        
+                        self.logger.info(f"Successfully extracted flights: {flights} for date: {date}")
+                        return {
+                            'success': True,
+                            'flights': flights,
+                            'timestamp': date if date else datetime.now(timezone.utc).isoformat(),
+                            'raw_response': text_content,
+                            'model_used': self.model_id
+                        }
+                    else:
+                        # Reject with specific reason
+                        error_msg = result_json.get('error', 'Invalid flight data')
+                        view_type = result_json.get('view_type', 'unknown')
+                        
+                        if view_type == "weekly" or view_type == "monthly":
+                            reject_reason = f"Screenshot shows {view_type} average. Please upload a daily view."
+                        else:
+                            reject_reason = error_msg
+                            
+                        self.logger.info(f"Rejected flight image: {reject_reason}")
+                        return {
+                            'success': False,
+                            'error': reject_reason
+                        }
                 else:
-                    # Try to directly parse if there's no clear JSON pattern
-                    result_json = json.loads(text_content)
+                    # Fallback to regex extraction if JSON parsing fails
+                    # Look for "TOTAL X floors" with a date
+                    total_match = re.search(r'TOTAL\s+(\d+)\s+floors', text_content, re.IGNORECASE)
+                    date_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', text_content)
+                    
+                    # Check for AVERAGE indicator (reject)
+                    average_match = re.search(r'AVERAGE', text_content, re.IGNORECASE)
+                    
+                    if average_match:
+                        self.logger.info("Rejected: Image shows weekly/monthly average")
+                        return {
+                            'success': False,
+                            'error': "Please upload an image showing daily floors climbed, not a weekly or monthly average."
+                        }
+                    
+                    if not date_match:
+                        self.logger.info("Rejected: No date found in the image")
+                        return {
+                            'success': False,
+                            'error': "Please upload an image with a visible date."
+                        }
+                    
+                    if total_match and date_match:
+                        flights = int(total_match.group(1))
+                        date_str = date_match.group(0)
+                        
+                        self.logger.info(f"Extracted flights with regex: {flights}, date: {date_str}")
+                        return {
+                            'success': True,
+                            'flights': flights,
+                            'timestamp': date_str,
+                            'raw_response': text_content,
+                        }
                 
-                # Validate the extracted data
-                flights = int(result_json.get('flights', 0)) if result_json.get('flights') else None
-                timestamp = result_json.get('timestamp')
-                
+                # If we get here, we couldn't extract the data
                 return {
-                    'success': True,
-                    'flights': flights,
-                    'timestamp': timestamp,
-                    'raw_response': text_content,
-                    'model_used': self.model_id
+                    'success': False,
+                    'error': "Could not extract flight data from the image. Please ensure it shows daily flights with a clear date.",
+                    'raw_response': text_content
                 }
             
             except (json.JSONDecodeError, ValueError) as e:
@@ -142,10 +220,10 @@ class ImageAnalyzer:
                     'error': 'Could not parse response',
                     'raw_response': text_content
                 }
-                
+            
         except Exception as e:
             self.logger.error(f"AWS Bedrock error: {str(e)}")
-            # Return a response that indicates manual entry is needed
+        # Return a response that indicates manual entry is needed
             return {
                 'success': False,
                 'error': "Could not process image with AWS Bedrock. Please enter details manually.",
@@ -191,7 +269,32 @@ class ImageAnalyzer:
                                 "content": [
                                     {
                                         "type": "text",
-                                        "text": "This is a screenshot from a health app showing standing time. Look for a section or tile labeled 'Stand Minutes', 'Stand Time', or similar. Extract ONLY the number of minutes stood. Format your response as a JSON with keys 'minutes' (integer) and 'timestamp' (string in ISO format, if visible). If you can't determine the minutes, set minutes to 0."
+                                        "text": """This is a screenshot from a health app showing standing time.
+
+Analyze the image and extract stand time information:
+
+1. Check if this shows a SPECIFIC DAY'S stand time - it may be labeled as "TOTAL" with a specific date
+2. Check if the stand time is shown in MINUTES (not hours)
+3. Extract the exact number of stand minutes for the specific day
+4. Extract the date if visible
+
+Only accept the image if:
+- It shows data for a specific single day (not an average)
+- The data is shown in minutes (not hours)
+
+IMPORTANT: Images showing "TOTAL" with a specific date and minutes (like "TOTAL 63 min") ARE valid and should be accepted.
+
+Format your response as a JSON with these keys:
+- "valid_data" (boolean): true only if it shows a specific day's stand minutes
+- "minutes" (integer): the number of stand minutes (not hours)
+- "date" (string): the date in YYYY-MM-DD format if visible, otherwise null
+- "error" (string): description of why the data is invalid, only if valid_data is false
+- "units" (string): "minutes" or "hours"
+- "view_type" (string): "daily" or "weekly" or "monthly"
+
+Examples of rejections:
+- Weekly average data should be rejected
+- Stand hours (not minutes) should be rejected"""
                                     },
                                     {
                                         "type": "image",
@@ -221,21 +324,75 @@ class ImageAnalyzer:
                     json_match = re.search(r'(\{.*?\})', text_content, re.DOTALL)
                     if json_match:
                         result_json = json.loads(json_match.group(1))
-                        minutes = int(result_json.get('minutes', 0))
-                        timestamp = result_json.get('timestamp', datetime.now(timezone.utc).isoformat())
                         
-                        self.logger.info(f"Successfully extracted standing time: {minutes} minutes")
-                        return {
-                            'success': True,
-                            'minutes': minutes,
-                            'timestamp': timestamp
-                        }
+                        # Check if this is valid daily stand minutes
+                        if result_json.get('valid_data', False):
+                            minutes = int(result_json.get('minutes', 0))
+                            date = result_json.get('date')
+                            
+                            self.logger.info(f"Successfully extracted stand minutes: {minutes} for date: {date}")
+                            return {
+                                'success': True,
+                                'minutes': minutes,
+                                'timestamp': date if date else datetime.now(timezone.utc).isoformat()
+                            }
+                        else:
+                            # Reject with specific reason
+                            error_msg = result_json.get('error', 'Invalid standing data')
+                            units = result_json.get('units', 'unknown')
+                            view_type = result_json.get('view_type', 'unknown')
+                            
+                            if units == "hours":
+                                reject_reason = "Screenshot shows standing hours. Please upload an image showing standing minutes."
+                            elif view_type == "weekly" or view_type == "monthly":
+                                reject_reason = f"Screenshot shows {view_type} average. Please upload a daily view."
+                            else:
+                                reject_reason = error_msg
+                                
+                            self.logger.info(f"Rejected stand image: {reject_reason}")
+                            return {
+                                'success': False,
+                                'error': reject_reason
+                            }
                     else:
-                        # Fallback to simple regex extraction
+                        # Enhanced fallback to detect "TOTAL" minutes pattern (as shown in IMG_0350)
+                        total_minutes_match = re.search(r'TOTAL[\s:]*(\d+)\s*min', text_content, re.IGNORECASE)
+                        specific_date_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', text_content)
+                        
+                        # Detect if this is an "hours" image (reject)
+                        hours_match = re.search(r'(\d+)\s*hr', text_content, re.IGNORECASE)
+                        average_match = re.search(r'AVERAGE', text_content, re.IGNORECASE)
+                        
+                        if hours_match and not total_minutes_match:
+                            self.logger.info("Rejected: Image shows hours instead of minutes")
+                            return {
+                                'success': False,
+                                'error': "Please upload an image showing stand minutes, not hours."
+                            }
+                        
+                        if average_match and not total_minutes_match:
+                            self.logger.info("Rejected: Image shows weekly/monthly average")
+                            return {
+                                'success': False, 
+                                'error': "Please upload an image showing daily stand minutes, not a weekly or monthly average."
+                            }
+                        
+                        if total_minutes_match:
+                            minutes = int(total_minutes_match.group(1))
+                            date_str = specific_date_match.group(1) if specific_date_match else None
+                            
+                            self.logger.info(f"Extracted stand minutes with regex: {minutes} minutes, date: {date_str}")
+                            return {
+                                'success': True,
+                                'minutes': minutes,
+                                'timestamp': date_str if date_str else datetime.now(timezone.utc).isoformat()
+                            }
+                        
+                        # Last resort - look for any minutes mention
                         minutes_match = re.search(r'(\d+)\s*minutes?', text_content, re.IGNORECASE)
                         if minutes_match:
                             minutes = int(minutes_match.group(1))
-                            self.logger.info(f"Extracted standing time with regex: {minutes} minutes")
+                            self.logger.info(f"Extracted stand minutes with generic regex: {minutes} minutes")
                             return {
                                 'success': True,
                                 'minutes': minutes,
@@ -244,18 +401,13 @@ class ImageAnalyzer:
                 except Exception as e:
                     self.logger.error(f"Bedrock error analyzing standing time: {str(e)}")
             
-            # Fallback method - simplified OCR approach
-            # In a real app, you'd implement a more sophisticated OCR solution
-            # For now, we'll use a simple random value for testing
-            import random
-            minutes = random.randint(15, 120)
-            self.logger.info(f"Using fallback method for standing time: {minutes} minutes")
-            
+            # Reject screenshot with clear message
+            self.logger.info("Stand image analysis failed, rejecting screenshot")
             return {
-                'success': True,
-                'minutes': minutes,
-                'timestamp': datetime.now(timezone.utc).isoformat()
+                'success': False,
+                'error': 'Unable to analyze screenshot. Please upload a daily view showing stand minutes (not hours).'
             }
+                
         except Exception as e:
             self.logger.error(f"Standing image analysis error: {str(e)}")
             return {
@@ -266,7 +418,7 @@ class ImageAnalyzer:
     def analyze_steps_image(self, image_file):
         """
         Analyze an image from the health app showing steps count
-        
+    
         Args:
             image_file: File object containing the image
             
@@ -274,25 +426,25 @@ class ImageAnalyzer:
             dict: Analysis result with steps count and success status
         """
         try:
-            # Read and resize image to reduce size
+            # Read and resize image
             image = Image.open(image_file)
-            
+        
             # Resize image if it's too large (keep aspect ratio)
             max_size = 1600
             if max(image.size) > max_size:
                 ratio = max_size / max(image.size)
                 new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
                 image = image.resize(new_size, Image.LANCZOS)
-            
+        
             # Convert to base64
             buffered = BytesIO()
             image.save(buffered, format="JPEG")
             image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-            
+        
             # Use AWS Bedrock if configured
             if hasattr(self, 'client') and self.client:
                 try:
-                    # Prepare request body with specific prompt for steps
+                    # Updated request body to improve steps analysis
                     request_body = {
                         "anthropic_version": "bedrock-2023-05-31",
                         "max_tokens": 1000,
@@ -302,7 +454,23 @@ class ImageAnalyzer:
                                 "content": [
                                     {
                                         "type": "text",
-                                        "text": "This is a screenshot from a health app showing step count. Look for a section or tile labeled 'Steps'. Extract ONLY the number of steps taken. Format your response as a JSON with keys 'steps' (integer) and 'timestamp' (string in ISO format, if visible). Remove any commas from the number. If you can't determine the steps, set steps to 0."
+                                        "text": """This is a screenshot from a health app showing step count.
+                                
+Analyze the image and extract the step count information:
+
+1. If this shows a SPECIFIC DAY'S total steps (even if displayed within a weekly view), extract:
+   - The exact number of steps for that day
+   - The specific date (if visible)
+
+2. Only reject the image if:
+   - It shows ONLY weekly or monthly averages with no specific day highlighted
+   - The step count for a specific day cannot be clearly determined
+
+Format your response as a JSON with keys:
+- "valid_data" (boolean): true if a specific day's step count is clearly visible
+- "steps" (integer): the number of steps for the specific day (remove any commas)
+- "date" (string): the date in YYYY-MM-DD format if visible, otherwise null
+- "error" (string): description of why the data is invalid, only if valid_data is false"""
                                     },
                                     {
                                         "type": "image",
@@ -317,61 +485,83 @@ class ImageAnalyzer:
                         ],
                         "temperature": 0.2
                     }
-                    
+            
                     # Call Claude model
                     response = self.client.invoke_model(
                         modelId=self.model_id,
                         body=json.dumps(request_body)
                     )
-                    
+            
                     # Parse response
                     response_body = json.loads(response['body'].read())
                     text_content = response_body['content'][0]['text']
-                    
+            
                     # Extract JSON from response
                     json_match = re.search(r'(\{.*?\})', text_content, re.DOTALL)
                     if json_match:
                         result_json = json.loads(json_match.group(1))
-                        steps = int(result_json.get('steps', 0))
-                        timestamp = result_json.get('timestamp', datetime.now(timezone.utc).isoformat())
-                        
-                        self.logger.info(f"Successfully extracted steps: {steps}")
-                        return {
-                            'success': True,
-                            'steps': steps,
-                            'timestamp': timestamp
-                        }
+                
+                        # Check if this contains valid data for a specific day
+                        if result_json.get('valid_data', False):
+                            steps = int(result_json.get('steps', 0))
+                            date = result_json.get('date')
+                
+                            self.logger.info(f"Successfully extracted steps: {steps} for date: {date}")
+                            return {
+                                'success': True,
+                                'steps': steps,
+                                'timestamp': date if date else datetime.now(timezone.utc).isoformat()
+                            }
+                        else:
+                            error_msg = result_json.get('error', 'Please upload an image showing a specific day\'s step count')
+                            self.logger.info(f"Rejected image: {error_msg}")
+                            return {
+                                'success': False,
+                                'error': error_msg
+                            }
                     else:
-                        # Fallback to simple regex extraction
-                        # Look for numbers in the text that might be steps
+                        # Fallback to simple regex extraction if JSON parsing fails
+                        self.logger.warning("Couldn't parse JSON from response, using fallback")
+                
+                        # Look for specific day data formats like "TOTAL: X steps" or "X steps" with a date
+                        total_steps_match = re.search(r'TOTAL[:\s]*([0-9,]+)\s*steps', text_content, re.IGNORECASE)
+                        date_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', text_content)
+                        
+                        if total_steps_match:
+                            steps_str = total_steps_match.group(1).replace(',', '')
+                            steps = int(steps_str)
+                            date_str = date_match.group(1) if date_match else None
+                            
+                            self.logger.info(f"Extracted steps with regex: {steps}, date: {date_str}")
+                            return {
+                                'success': True,
+                                'steps': steps,
+                                'timestamp': date_str if date_str else datetime.now(timezone.utc).isoformat()
+                            }
+                        
+                        # General steps pattern as last resort
                         steps_match = re.search(r'(\d{1,3}(?:,\d{3})*|\d+)\s*steps?', text_content, re.IGNORECASE)
                         if steps_match:
-                            # Remove commas from the number
                             steps_str = steps_match.group(1).replace(',', '')
                             steps = int(steps_str)
-                            self.logger.info(f"Extracted steps with regex: {steps}")
+                            self.logger.info(f"Extracted steps with generic regex: {steps}")
                             return {
                                 'success': True,
                                 'steps': steps,
                                 'timestamp': datetime.now(timezone.utc).isoformat()
                             }
                 except Exception as e:
-                    self.logger.error(f"Bedrock error analyzing steps: {str(e)}")
-            
-            # Fallback method - simplified approach
-            # In a real app, you'd implement a more sophisticated OCR solution
-            import random
-            steps = random.randint(2000, 15000)
-            self.logger.info(f"Using fallback method for steps: {steps}")
-            
-            return {
-                'success': True,
-                'steps': steps,
-                'timestamp': datetime.now(timezone.utc).isoformat()
-            }
+                        self.logger.error(f"Bedrock error analyzing steps: {str(e)}")
+                
+                # Fallback method if AWS Bedrock is not available
+                self.logger.info("Image analysis not available, rejecting screenshot")
+                return {
+                    'success': False,
+                    'error': 'Could not analyze screenshot. Please try again with a clearer image of your steps.'
+                }
         except Exception as e:
             self.logger.error(f"Steps image analysis error: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+        return {
+            'success': False,
+            'error': str(e)
+        }
