@@ -1472,7 +1472,70 @@ def get_garmin_steps():
         app.logger.error(f"Garmin fetch error: {e}")
         return jsonify({"error": "An error occurred while fetching Garmin data"}), 500
         
+
+from datetime import datetime, timedelta
+
+@app.route('/get_garmin_weekly')
+@login_required
+def get_garmin_weekly():
+    access_token = session.get('garmin_access_token')
+
     
+    if not access_token:
+        return jsonify({"error": "Garmin not linked"}), 401
+
+    now = datetime.utcnow()
+    week = []
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    for i in range(6, -1, -1):  # 6 days ago to today
+        day = now - timedelta(days=i)
+        start_of_day = datetime(day.year, day.month, day.day)
+        end_of_day = start_of_day + timedelta(days=1)
+        start_time_seconds = int(start_of_day.timestamp())
+        end_time_seconds = int(end_of_day.timestamp())
+
+        url = (
+            f'https://apis.garmin.com/wellness-api/rest/dailies'
+            f'?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
+        )
+
+        try:
+            r = requests.get(url, headers=headers, timeout=10)
+            # app.logger.info(f"Garmin API status: {r.status_code}, response: {r.text}")
+            if r.status_code != 200:
+                week.append({
+                    "calendarDate": start_of_day.strftime('%Y-%m-%d'),
+                    "steps": 0,
+                    "floorsClimbed": 0,
+                    "error": f"Failed to fetch: {r.text}"
+                })
+                continue
+            data = r.json()
+            if isinstance(data, list) and data:
+                day_data = data[0]
+                week.append({
+                    "calendarDate": day_data.get("calendarDate", start_of_day.strftime('%Y-%m-%d')),
+                    "steps": day_data.get("steps", 0),
+                    "floorsClimbed": day_data.get("floorsClimbed", 0)
+                })
+            else:
+                week.append({
+                    "calendarDate": start_of_day.strftime('%Y-%m-%d'),
+                    "steps": 0,
+                    "floorsClimbed": 0
+                })
+        except Exception as e:
+            app.logger.error(f"Garmin weekly fetch error for {start_of_day}: {e}")
+            week.append({
+                "calendarDate": start_of_day.strftime('%Y-%m-%d'),
+                "steps": 0,
+                "floorsClimbed": 0,
+                "error": str(e)
+            })
+    week.sort(key=lambda x: x["calendarDate"])
+    return jsonify({"week": week})
+
 @app.route('/unified_dashboard')
 @login_required
 def unified_dashboard():
