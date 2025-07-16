@@ -1104,6 +1104,9 @@ def upload_standing_screenshot():
                 multiplier = get_points_multiplier()
                 points = incremental_minutes * multiplier
                 
+                # Set notes to None for screenshot uploads
+                notes = None
+                
                 # Log the standing time
                 log = StandingLog(user_id=current_user.id, minutes=minutes, points=points, notes=notes)
                 
@@ -1377,6 +1380,10 @@ if __name__ == '__main__':
     debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
     app.run(debug=debug_mode, port=5001)
 
+def get_leaderboard(limit=10):
+    """Get top users ordered by total points, excluding admins"""
+    return User.query.filter(User.is_admin == False).order_by(User.total_points.desc()).limit(limit).all()
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -1530,6 +1537,61 @@ def google_fit_callback():
         app.logger.error(f"Google Fit callback error: {str(e)}")
         flash('An error occurred while connecting to Google Fit', 'danger')
         return redirect(url_for('dashboard'))
+
+@app.route('/get_google_fit_steps', methods=['GET'])
+@login_required
+def get_google_fit_steps():
+    # Get token from user model instead of session
+    access_token = current_user.google_fit_token
+    if not access_token:
+        return jsonify({"error": "Google Fit not linked"}), 401
+
+    # Get today's start and end time in milliseconds
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    start_time_millis = int(start_of_day.timestamp() * 1000)
+    end_time_millis = int(end_of_day.timestamp() * 1000)
+
+    url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "aggregateBy": [{
+            "dataTypeName": "com.google.step_count.delta",
+            "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+        }],
+        "bucketByTime": { "durationMillis": 86400000 },
+        "startTimeMillis": start_time_millis,
+        "endTimeMillis": end_time_millis
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=body, timeout=10)
+        if r.status_code != 200:
+            app.logger.error(f"Google Fit API error: {r.status_code} - {r.text}")
+            return jsonify({"error": "Failed to fetch Google Fit data"}), 400
+
+        data = r.json()
+        total_steps_today = 0
+        buckets = data.get("bucket", [])
+        for bucket in buckets:
+            for dataset in bucket.get("dataset", []):
+                for point in dataset.get("point", []):
+                    for value in point.get("value", []):
+                        total_steps_today += value.get("intVal", 0)
+
+        # Add success flag to indicate request was successful
+        return jsonify({"success": True, "steps": total_steps_today})
+
+    except Exception as e:
+        app.logger.error(f"Error fetching Google Fit steps: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching steps"}), 500
 
 @app.route('/google_fit_auth')
 @login_required

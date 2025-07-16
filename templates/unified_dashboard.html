@@ -426,7 +426,7 @@ document.getElementById('get-google-fit-steps-btn').onclick = function() {
     this.disabled = true;
     this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
     
-    fetch('/log_google_fit_steps', { method: 'POST' })
+    fetch('/get_google_fit_steps', { method: 'GET' })
         .then(res => res.json())
         .then(data => {
             if (data.success) {
