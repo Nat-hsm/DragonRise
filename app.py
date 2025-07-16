@@ -1410,7 +1410,61 @@ def get_garmin_steps():
         app.logger.error(f"Garmin fetch error: {e}")
         return jsonify({"error": "An error occurred while fetching Garmin data"}), 500
         
-    
+
+from datetime import datetime, timedelta, timezone
+
+LOCAL_TZ = timezone(timedelta(hours=8))  # Set to your local time zone
+
+now = datetime.now(LOCAL_TZ)
+week = []
+headers = {"Authorization": f"Bearer {access_token}"}
+
+for i in range(6, -1, -1):
+    day = now - timedelta(days=i)
+    start_of_day = datetime(day.year, day.month, day.day, tzinfo=LOCAL_TZ)
+    end_of_day = start_of_day + timedelta(days=1)
+    start_time_seconds = int(start_of_day.timestamp())
+    end_time_seconds = int(end_of_day.timestamp())
+
+    url = (
+        f'https://apis.garmin.com/wellness-api/rest/dailies'
+        f'?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
+    )
+
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            week.append({
+                "calendarDate": start_of_day.strftime('%Y-%m-%d'),
+                "steps": 0,
+                "floorsClimbed": 0,
+                "error": f"Failed to fetch: {r.text}"
+            })
+            continue
+        data = r.json()
+        if isinstance(data, list) and data:
+            day_data = data[0]
+            week.append({
+                "calendarDate": day_data.get("calendarDate", start_of_day.strftime('%Y-%m-%d')),
+                "steps": day_data.get("steps", 0),
+                "floorsClimbed": day_data.get("floorsClimbed", 0)
+            })
+        else:
+            week.append({
+                "calendarDate": start_of_day.strftime('%Y-%m-%d'),
+                "steps": 0,
+                "floorsClimbed": 0
+            })
+    except Exception as e:
+        week.append({
+            "calendarDate": start_of_day.strftime('%Y-%m-%d'),
+            "steps": 0,
+            "floorsClimbed": 0,
+            "error": str(e)
+        })
+week.sort(key=lambda x: x["calendarDate"])
+return jsonify({"week": week})
+
 @app.route('/unified_dashboard')
 @login_required
 def unified_dashboard():
