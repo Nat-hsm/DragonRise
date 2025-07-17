@@ -60,6 +60,11 @@
                                 <input type="hidden" name="user_id" value="{{ user.id }}">
                                 <button type="submit" class="btn btn-sm btn-outline-warning" onclick="return confirm('Are you sure you want to reset this user\'s points?');">Reset Points</button>
                             </form>
+                            <form action="/admin-dashboard/update-user-points" method="POST" style="display:inline;">
+                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                <input type="number" name="new_points" value="{{ user.total_points }}" min="0" style="width:80px;">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">Update Points</button>
+                            </form>
                             {% else %}
                             <span class="badge bg-secondary">Admin</span>
                             {% endif %}
@@ -115,6 +120,11 @@
                             <form action="/admin-dashboard/reset-house" method="POST" style="display:inline;">
                                 <input type="hidden" name="house_id" value="{{ house.id }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to reset all points for {{ house.name }} house? This action cannot be undone.');">Reset Points</button>
+                            </form>
+                            <form action="/admin-dashboard/update-house-points" method="POST" style="display:inline;">
+                                <input type="hidden" name="house_id" value="{{ house.id }}">
+                                <input type="number" name="new_points" value="{{ house.total_points }}" min="0" style="width:80px;">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">Update Points</button>
                             </form>
                         </td>
                     </tr>

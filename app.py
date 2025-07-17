@@ -1943,7 +1943,7 @@ def analytics_dashboard():
         thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
         active_users = User.query.filter(
             User.is_admin == False,
-            User.last_login >= thirty_days_ago
+            User.last_login >= thirty_days_ago  # <-- correct variable name
         ).count()
         
         # Prepare house stats and query filters based on active event
@@ -2144,3 +2144,114 @@ def analytics_dashboard():
         app.logger.error(f"Error in analytics dashboard: {str(e)}")
         flash('An error occurred while loading analytics data', 'danger')
         return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/reset-user-points', methods=['POST'])
+@login_required
+@admin_required
+def reset_user_points():
+    user_id = request.form.get('user_id')
+    user = User.query.get_or_404(user_id)
+    # Store old values
+    old_points = user.total_points
+    old_flights = user.total_flights
+    old_standing = user.total_standing_time
+    old_steps = getattr(user, 'total_steps', 0)
+
+    # Reset user stats
+    user.total_points = 0
+    user.total_flights = 0
+    user.total_standing_time = 0
+    if hasattr(user, 'total_steps'):
+        user.total_steps = 0
+
+    # Update house stats
+    house = House.query.filter_by(name=user.house).first()
+    if house:
+        house.total_points -= old_points
+        house.total_flights -= old_flights
+        if hasattr(house, 'total_standing_time'):
+            house.total_standing_time -= old_standing
+        if hasattr(house, 'total_steps'):
+            house.total_steps = max(getattr(house, 'total_steps', 0) - old_steps, 0)
+
+    db.session.commit()
+    flash(f'Points for user {user.username} have been reset.', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/reset-house', methods=['POST'])
+@login_required
+@admin_required
+def reset_house():
+    house_id = request.form.get('house_id')
+    house = House.query.get_or_404(house_id)
+    # Reset house stats
+    house.total_points = 0
+    house.total_flights = 0
+    if hasattr(house, 'total_standing_time'):
+        house.total_standing_time = 0
+    if hasattr(house, 'total_steps'):
+        house.total_steps = 0
+
+    # Reset all non-admin users in this house
+    users_in_house = User.query.filter_by(house=house.name).all()
+    for user in users_in_house:
+        if not user.is_admin:
+            user.total_points = 0
+            user.total_flights = 0
+            user.total_standing_time = 0
+            if hasattr(user, 'total_steps'):
+                user.total_steps = 0
+
+    db.session.commit()
+    flash(f'Points for house {house.name} and all its users have been reset.', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/update-user-points', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def update_user_points():
+    user_id = request.form.get('user_id')
+    new_points = request.form.get('new_points')
+    user = User.query.get_or_404(user_id)
+    try:
+        new_points = int(new_points)
+        if new_points < 0:
+            flash('Points cannot be negative.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        # Update house total points
+        house = House.query.filter_by(name=user.house).first()
+        if house:
+            # Adjust house points by the difference
+            diff = new_points - user.total_points
+            house.total_points += diff
+        user.total_points = new_points
+        db.session.commit()
+        flash(f'Points for user {user.username} updated to {new_points}.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating user points: {str(e)}")
+        flash('An error occurred while updating user points.', 'danger')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/update-house-points', methods=['POST'])
+@login_required
+@admin_required
+def update_house_points():
+    house_id = request.form.get('house_id')
+    new_points = request.form.get('new_points')
+    house = House.query.get_or_404(house_id)
+    try:
+        new_points = int(new_points)
+        if new_points < 0:
+            flash('Points cannot be negative.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        house.total_points = new_points
+        db.session.commit()
+        flash(f'Points for house {house.name} updated to {new_points}.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating house points: {str(e)}")
+        flash('An error occurred while updating house points.', 'danger')
+    return redirect(url_for('admin_dashboard'))
