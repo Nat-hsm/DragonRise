@@ -16,10 +16,15 @@ class User(UserMixin, db.Model):
     total_points = db.Column(db.Integer, default=0)
     total_standing_time = db.Column(db.Integer, default=0)  # Total standing time in minutes
     total_steps = db.Column(db.Integer, default=0)  # Total steps count
-    join_date = db.Column(db.DateTime, default=datetime.utcnow)
+    join_date = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     last_login = db.Column(db.DateTime)
     is_active = db.Column(db.Boolean, default=True)
     is_admin = db.Column(db.Boolean, default=False)
+    
+    # Google Fit integration
+    google_fit_token = db.Column(db.String(500), nullable=True)
+    google_refresh_token = db.Column(db.String(500), nullable=True)
+    google_token_expiry = db.Column(db.DateTime, nullable=True)
     
     # Relationships
     logs = db.relationship('ClimbLog', backref='user', lazy=True,
@@ -74,6 +79,10 @@ class User(UserMixin, db.Model):
     def __repr__(self):
         return f'<User {self.username}>'
 
+    # Add a method to get the user's house
+    def get_house(self):
+        return House.query.filter_by(name=self.house).first()
+
 
 class House(db.Model):
     """House model for group management"""
@@ -86,7 +95,7 @@ class House(db.Model):
     total_standing_time = db.Column(db.Integer, default=0)  # Total standing time in minutes
     total_steps = db.Column(db.Integer, default=0)  # Total steps count
     member_count = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     last_activity = db.Column(db.DateTime)
 
     # Indexes
@@ -102,13 +111,13 @@ class House(db.Model):
         """Update house points and flights"""
         self.total_flights += flights
         self.total_points += flights * 10
-        self.last_activity = datetime.utcnow()
+        self.last_activity = datetime.now(timezone.utc)
 
     def update_standing_time(self, minutes):
         """Update house standing time and points"""
         self.total_standing_time += minutes
         self.total_points += minutes  # 1 point per minute
-        self.last_activity = datetime.utcnow()
+        self.last_activity = datetime.now(timezone.utc)
         
     def update_steps(self, steps):
         """Update house steps and points"""
@@ -116,7 +125,7 @@ class House(db.Model):
         if hasattr(self, 'total_steps'):
             self.total_steps += steps
             self.total_points += steps // 100  # 1 point per 100 steps
-            self.last_activity = datetime.utcnow()
+            self.last_activity = datetime.now(timezone.utc)
 
     def add_member(self):
         """Increment member count"""
@@ -139,7 +148,7 @@ class ClimbLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     flights = db.Column(db.Integer, nullable=False)
     points = db.Column(db.Integer, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     notes = db.Column(db.String(200))  # Optional notes for the climb
 
     # Indexes
@@ -183,7 +192,7 @@ class StandingLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     minutes = db.Column(db.Integer, nullable=False)  # Standing time in minutes
     points = db.Column(db.Integer, nullable=False)   # Points earned (1 per minute)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     notes = db.Column(db.String(200))  # Optional notes
 
     # Indexes
@@ -215,18 +224,14 @@ class StepLog(db.Model):
     __tablename__ = 'step_logs'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    steps = db.Column(db.Integer, nullable=False)  # Number of steps
-    points = db.Column(db.Integer, nullable=False)  # Points earned (1 per 100 steps)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # FIXED
+    steps = db.Column(db.Integer, nullable=False)
+    points = db.Column(db.Integer, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.now(timezone.utc))
-    notes = db.Column(db.Text, nullable=True)
-
-    @property
-    def formatted_timestamp(self):
-        return self.timestamp.strftime('%Y-%m-%d %H:%M')
+    source = db.Column(db.String(50), nullable=True)
 
     def __repr__(self):
-        return f'<StepLog {self.user_id} - {self.steps} steps>'
+        return f"<StepLog {self.id}: {self.steps} steps by user {self.user_id}>"
 
 
 # Add Achievement model for future gamification
@@ -240,7 +245,7 @@ class Achievement(db.Model):
     points_required = db.Column(db.Integer)
     flights_required = db.Column(db.Integer)
     icon = db.Column(db.String(100))  # Path to achievement icon
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
 
     def __repr__(self):
         return f'<Achievement {self.name}>'
@@ -250,7 +255,7 @@ class Achievement(db.Model):
 user_achievements = db.Table('user_achievements',
     db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
     db.Column('achievement_id', db.Integer, db.ForeignKey('achievements.id'), primary_key=True),
-    db.Column('earned_at', db.DateTime, default=datetime.utcnow)
+    db.Column('earned_at', db.DateTime, default=datetime.now(timezone.utc))
 )
 
 
@@ -356,8 +361,8 @@ class PeakHourSetting(db.Model):
     end_time = db.Column(db.Time, nullable=False)
     multiplier = db.Column(db.Integer, default=2)
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     def __init__(self, name, start_time, end_time, multiplier=2, is_active=True):
         self.name = name
@@ -416,3 +421,156 @@ def init_peak_hours():
         except Exception as e:
             db.session.rollback()
             raise e
+
+
+class Event(db.Model):
+    """Event model for time-limited competitions"""
+    __tablename__ = 'events'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    start_date = db.Column(db.DateTime, nullable=False)
+    end_date = db.Column(db.DateTime, nullable=False)
+    is_active = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    
+    def __init__(self, name, description, start_date, end_date, is_active=False):
+        self.name = name
+        self.description = description
+        self.start_date = start_date
+        self.end_date = end_date
+        self.is_active = is_active
+        
+    def __repr__(self):
+        return f'<Event {self.name} ({self.start_date.strftime("%Y-%m-%d")} to {self.end_date.strftime("%Y-%m-%d")})>'
+
+def get_active_event():
+    """Get the currently active event if any"""
+    return Event.query.filter_by(is_active=True).first()
+
+def is_in_active_event(current_time=None):
+    """Check if the given datetime is within an active event period"""
+    if current_time is None:
+        current_time = datetime.now(timezone.utc)
+    elif current_time.tzinfo is None:
+        # Ensure the datetime is timezone-aware
+        current_time = current_time.replace(tzinfo=timezone.utc)
+    
+    event = Event.query.filter(
+        Event.start_date <= current_time,
+        Event.end_date >= current_time,
+        Event.is_active == True  # FIXED: Changed from active to is_active
+    ).first()
+    
+    return event is not None
+
+def get_event_points(user_id=None, house_name=None):
+    """
+    Calculate points earned during the active event period
+    Can be used for either a user or a house
+    
+    Args:
+        user_id: User ID (optional)
+        house_name: House name (optional)
+        
+    Returns:
+        dict: Dictionary of points data during the event period
+    """
+    event = get_active_event()
+    if not event:
+        return None  # No active event
+    
+    # Prepare result structure
+    result = {
+        'total_points': 0,
+        'total_flights': 0,
+        'total_standing_time': 0,
+        'total_steps': 0,
+        'event_name': event.name,
+        'start_date': event.start_date,
+        'end_date': event.end_date
+    }
+    
+    # Get climbing points during event period
+    if user_id:
+        climb_logs = ClimbLog.query.filter(
+            ClimbLog.user_id == user_id,
+            ClimbLog.timestamp >= event.start_date,
+            ClimbLog.timestamp <= event.end_date
+        ).all()
+    elif house_name:
+        # For house, get all users in house
+        user_ids = [user.id for user in User.query.filter_by(house=house_name).all()]
+        if not user_ids:
+            return result
+            
+        climb_logs = ClimbLog.query.filter(
+            ClimbLog.user_id.in_(user_ids),
+            ClimbLog.timestamp >= event.start_date,
+            ClimbLog.timestamp <= event.end_date
+        ).all()
+    else:
+        return result
+    
+    # Sum up climbing activity
+    for log in climb_logs:
+        result['total_flights'] += log.flights
+        result['total_points'] += log.points
+    
+    # Get standing time points during event period
+    if user_id:
+        standing_logs = StandingLog.query.filter(
+            StandingLog.user_id == user_id,
+            StandingLog.timestamp >= event.start_date,
+            StandingLog.timestamp <= event.end_date
+        ).all()
+    elif house_name:
+        standing_logs = StandingLog.query.filter(
+            StandingLog.user_id.in_(user_ids),
+            StandingLog.timestamp >= event.start_date,
+            StandingLog.timestamp <= event.end_date
+        ).all()
+    
+    # Sum up standing time activity
+    for log in standing_logs:
+        result['total_standing_time'] += log.minutes
+        result['total_points'] += log.points
+    
+    # Get steps during event period
+    if hasattr(ClimbLog, 'steps'):  # Check if steps feature is available
+        if user_id:
+            steps_logs = StepLog.query.filter(
+                StepLog.user_id == user_id,
+                StepLog.timestamp >= event.start_date,
+                StepLog.timestamp <= event.end_date
+            ).all()
+        elif house_name:
+            steps_logs = StepLog.query.filter(
+                StepLog.user_id.in_(user_ids),
+                StepLog.timestamp >= event.start_date,
+                StepLog.timestamp <= event.end_date
+            ).all()
+        
+        # Sum up steps activity
+        for log in steps_logs:
+            result['total_steps'] += log.steps
+            result['total_points'] += log.points
+    
+    return result
+
+def should_award_points():
+    """
+    Determine whether points should be awarded based on active events
+    
+    Returns:
+        bool: True if points should be awarded, False otherwise
+    """
+    # If there's no active event, always award points
+    active_event = get_active_event()
+    if not active_event:
+        return True
+        
+    # If there is an active event, check if we're within its timeframe
+    current_time = datetime.now(timezone.utc)
+    return is_in_active_event(current_time)
