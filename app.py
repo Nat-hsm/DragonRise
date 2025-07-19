@@ -21,6 +21,7 @@ from config import get_config, validate_config
 from extensions import db, login_manager, migrate, cognito_auth
 # Add the missing OAuth import
 from authlib.integrations.flask_client import OAuth
+from urllib.parse import urlencode, quote
 # Import models - add init_houses, init_admin, and init_peak_hours to the imports
 from models import User, House, ClimbLog, StandingLog, StepLog, Event, get_active_event, is_in_active_event, get_event_points, init_houses, init_admin, init_peak_hours, should_award_points
 
@@ -1627,204 +1628,109 @@ def google_fit_auth():
         f'&state={state}'
     )
     
+    app.logger.info(f"Auth URL: {auth_url}")
+    
     # Log the authorization attempt
     log_activity(app, current_user.id, 'Google Fit Auth', 'Started Google Fit authorization')
     
     # Redirect user to Google's OAuth consent page
     return redirect(auth_url)
 
+GARMIN_CLIENT_ID = os.getenv('GARMIN_CLIENT_ID')
+GARMIN_CLIENT_SECRET = os.getenv('GARMIN_CLIENT_SECRET')
+GARMIN_REDIRECT_URI = os.getenv('GARMIN_REDIRECT_URI')
+
 @app.route('/garmin_auth')
 @login_required
 def garmin_auth():
-    """Initialize Garmin Connect OAuth flow using PKCE"""
-    try:
-        # Get credentials from environment variables
-        client_id = os.environ.get('GARMIN_CLIENT_ID')
-        redirect_uri = os.environ.get('GARMIN_REDIRECT_URI')
-        
-        if not client_id or not redirect_uri:
-            app.logger.error("Garmin Connect integration is not properly configured")
-            flash('Garmin Connect integration is not properly configured.', 'danger')
-            return redirect(url_for('dashboard'))
-        
-        # Generate PKCE code verifier and challenge
-        code_verifier = pkce.generate_code_verifier(length=128)
-        code_challenge = pkce.get_code_challenge(code_verifier)
-        
-        # Store code verifier in session for later use
-        session['garmin_code_verifier'] = code_verifier
-        
-        # Generate state parameter to prevent CSRF
-        state = secrets.token_urlsafe(16)
-        session['garmin_oauth_state'] = state
-        
-        # Build authorization URL
-        auth_url = (
-            "https://connectapi.garmin.com/di-oauth2-service/oauth/authorize"
-            f"?client_id={client_id}"
-            f"&redirect_uri={redirect_uri}"
-            "&response_type=code"
-            f"&code_challenge={code_challenge}"
-            "&code_challenge_method=S256"
-            f"&state={state}"
-            "&scope=activity:read,activity:write"
-        )
-        
-        # Log the authorization attempt
-        log_activity(app, current_user.id, 'Garmin Auth', 'Started Garmin Connect authorization')
-        
-        # Redirect user to Garmin's OAuth consent page
-        return redirect(auth_url)
-    except Exception as e:
-        app.logger.error(f"Garmin auth initialization error: {str(e)}")
-        flash('An error occurred while connecting to Garmin Connect', 'danger')
-        return redirect(url_for('dashboard'))
+    # Generate code_verifier and code_challenge
+    code_verifier = pkce.generate_code_verifier(length=128)
+    code_challenge = pkce.get_code_challenge(code_verifier)
+    session['garmin_code_verifier'] = code_verifier
+
+    params = {
+        "response_type": "code",
+        "client_id": GARMIN_CLIENT_ID,
+        "redirect_uri": GARMIN_REDIRECT_URI,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "state": secrets.token_urlsafe(16)
+    }
+    auth_url = "https://connect.garmin.com/oauth2Confirm?" + urlencode(params)
+    return redirect(auth_url)
 
 @app.route('/garmin_callback')
 @login_required
 def garmin_callback():
-    """Handle Garmin Connect OAuth callback"""
+    code = request.args.get('code')
+    error = request.args.get('error')
+    if error:
+        flash(f"Garmin authorization failed: {error}", "danger")
+        return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
+    if not code:
+        flash("No authorization code received from Garmin.", "danger")
+        return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
+
+    code_verifier = session.get('garmin_code_verifier')
+    if not code_verifier:
+        flash("Missing PKCE code verifier. Please try again.", "danger")
+        return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
+
+    token_url = "https://connectapi.garmin.com/di-oauth2-service/oauth/token"
+    data = {
+        "grant_type": "authorization_code",
+        "client_id": GARMIN_CLIENT_ID,
+        "client_secret": GARMIN_CLIENT_SECRET,
+        "code": code,
+        "code_verifier": code_verifier,
+        "redirect_uri": GARMIN_REDIRECT_URI
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
     try:
-        # Check for error
-        error = request.args.get('error')
-        if error:
-            app.logger.error(f"Garmin authorization failed: {error}")
-            flash(f"Garmin authorization failed: {error}", "danger")
-            return redirect(url_for('dashboard'))
-        
-        # Get authorization code
-        code = request.args.get('code')
-        if not code:
-            app.logger.error("No authorization code received from Garmin")
-            flash("No authorization code received from Garmin", "danger")
-            return redirect(url_for('dashboard'))
-        
-        # Verify state to prevent CSRF
-        state = request.args.get('state')
-        stored_state = session.get('garmin_oauth_state')
-        if not state or state != stored_state:
-            app.logger.warning("Garmin OAuth state mismatch - possible CSRF attack")
-            flash("Authentication failed - security verification failed", "danger")
-            return redirect(url_for('dashboard'))
-        
-        # Get PKCE code verifier from session
-        code_verifier = session.get('garmin_code_verifier')
-        if not code_verifier:
-            app.logger.error("Missing PKCE code verifier for Garmin authentication")
-            flash("Authentication session expired. Please try again.", "danger")
-            return redirect(url_for('dashboard'))
-        
-        # Get credentials from environment variables
-        client_id = os.environ.get('GARMIN_CLIENT_ID')
-        client_secret = os.environ.get('GARMIN_CLIENT_SECRET')
-        redirect_uri = os.environ.get('GARMIN_REDIRECT_URI')
-        
-        if not client_id or not client_secret or not redirect_uri:
-            app.logger.error("Garmin Connect integration is not properly configured")
-            flash("Garmin Connect integration is not properly configured", "danger")
-            return redirect(url_for('dashboard'))
-        
-        # Exchange the authorization code for tokens
-        token_url = "https://connectapi.garmin.com/oauth-service/oauth/token"
-        data = {
-            "grant_type": "authorization_code",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "code_verifier": code_verifier,
-            "redirect_uri": redirect_uri
-        }
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        
-        response = requests.post(token_url, data=data, headers=headers, timeout=10)
-        
-        if response.status_code != 200:
-            app.logger.error(f"Failed to get Garmin access token: {response.status_code} - {response.text}")
-            flash("Failed to connect to Garmin. Please try again later.", "danger")
-            return redirect(url_for('dashboard'))
-        
-        # Parse token response
-        token_info = response.json()
-        
-        # Store tokens in session or database
+        r = requests.post(token_url, data=data, headers=headers, timeout=10)
+        if r.status_code != 200:
+            flash("Failed to get Garmin access token.", "danger")
+            return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
+        token_info = r.json()
         session['garmin_access_token'] = token_info.get("access_token")
         session['garmin_refresh_token'] = token_info.get("refresh_token")
-        expires_in = token_info.get("expires_in", 3600)
-        
-        # Store token expiry
-        session['garmin_token_expiry'] = datetime.now(timezone.utc).timestamp() + expires_in
-        
-        # Store in user model if needed
-        if hasattr(current_user, 'garmin_access_token'):
-            current_user.garmin_access_token = token_info.get("access_token")
-            current_user.garmin_refresh_token = token_info.get("refresh_token")
-            current_user.garmin_token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-            db.session.commit()
-        
-        # Log the successful connection
-        log_activity(app, current_user.id, 'Garmin Connected', 'Garmin Connect account connected successfully')
-        flash("Garmin Connect account linked successfully!", "success")
-        
-        # Clear OAuth session data
-        session.pop('garmin_code_verifier', None)
-        session.pop('garmin_oauth_state', None)
-        
-        return redirect(url_for('dashboard'))
-    
+        flash("Garmin account linked successfully!", "success")
     except Exception as e:
-        app.logger.error(f"Error in Garmin callback: {str(e)}")
-        flash("An error occurred while connecting to Garmin. Please try again.", "danger")
-        return redirect(url_for('dashboard'))
+        flash("An error occurred while linking Garmin.", "danger")
+    return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
+
 
 @app.route('/get_garmin_steps')
 @login_required
 def get_garmin_steps():
-    """Get steps data from Garmin Connect for the current day"""
+    access_token = session.get('garmin_access_token')
+    if not access_token:
+        return jsonify({"error": "Garmin not linked"}), 401
+
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start_of_day = datetime(now.year, now.month, now.day)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    # Use seconds, not milliseconds!
+    start_time_seconds = int(start_of_day.timestamp())
+    end_time_seconds = int(end_of_day.timestamp())
+
+    url = f'https://apis.garmin.com/wellness-api/rest/dailies?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
+    headers = {"Authorization": f"Bearer {access_token}"}
+
     try:
-        access_token = session.get('garmin_access_token')
-        if not access_token:
-            app.logger.warning("Garmin not linked for user trying to get steps data")
-            return jsonify({"error": "Garmin not linked"}), 401
-
-        # Calculate time range for today
-        now = datetime.utcnow()
-        start_of_day = datetime(now.year, now.month, now.day)
-        end_of_day = start_of_day + timedelta(days=1)
-
-        # Use seconds, not milliseconds
-        start_time_seconds = int(start_of_day.timestamp())
-        end_time_seconds = int(end_of_day.timestamp())
-
-        url = f'https://apis.garmin.com/wellness-api/rest/dailies?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
-        headers = {"Authorization": f"Bearer {access_token}"}
-
         r = requests.get(url, headers=headers, timeout=10)
-        app.logger.debug(f"Garmin API status: {r.status_code}")
-        
-        if r.status_code == 401:
-            # Token expired or invalid
-            app.logger.warning("Garmin access token expired or invalid")
-            return jsonify({"error": "Authentication expired. Please reconnect your Garmin account."}), 401
-        elif r.status_code != 200:
-            app.logger.error(f"Garmin API error: {r.status_code} - {r.text}")
-            return jsonify({"error": "Failed to fetch Garmin data"}), r.status_code
-        
+        #app.logger.info(f"Garmin API status: {r.status_code}, response: {r.text}")
+        if r.status_code != 200:
+            return jsonify({"error": "Failed to fetch Garmin data"}), 400
         data = r.json()
         steps = data[0].get('steps', 0) if data else 0
         stairs = data[0].get('floorsClimbed', 0) if data else 0
-        
-        # Log success
-        log_activity(app, current_user.id, 'Garmin Data Fetched', f'Retrieved {steps} steps and {stairs} stairs')
         return jsonify({"steps": steps, "stairs": stairs})
-    
-    except requests.exceptions.Timeout:
-        app.logger.error("Timeout while connecting to Garmin API")
-        return jsonify({"error": "Connection to Garmin timed out. Please try again."}), 504
-    except requests.exceptions.ConnectionError:
-        app.logger.error("Connection error while connecting to Garmin API")
-        return jsonify({"error": "Connection to Garmin failed. Please check your internet connection."}), 503
     except Exception as e:
-        app.logger.error(f"Garmin fetch error: {str(e)}")
+        app.logger.error(f"Garmin fetch error: {e}")
         return jsonify({"error": "An error occurred while fetching Garmin data"}), 500
 
 @app.route('/get_garmin_weekly')
@@ -1946,7 +1852,9 @@ def analytics_dashboard():
             User.last_login >= thirty_days_ago
         ).count()
         
+        
         # Prepare house stats and query filters based on active event
+       
         houses = House.query.all()
         house_stats = []
         
