@@ -1737,6 +1737,7 @@ def garmin_callback():
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         
         response = requests.post(token_url, data=data, headers=headers, timeout=10)
+        app.logger.info(f"Garmin token exchange response: {response.status_code} - {response.text}")
         
         if response.status_code != 200:
             app.logger.error(f"Failed to get Garmin access token: {response.status_code} - {response.text}")
