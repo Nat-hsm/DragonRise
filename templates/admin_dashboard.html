@@ -52,19 +52,39 @@
                         {% endif %}
                         <td>
                             {% if not user.is_admin %}
+                            <!-- All-time points update (always visible) -->
+                            {% if not active_event %}
+                            <form action="/admin-dashboard/update-user-points" method="POST" style="display:inline;">
+                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                <input type="number" name="new_points" value="{{ user.total_points }}" min="0" style="width:80px;">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">Update All-Time Points</button>
+                            </form>
+                            {% endif %}
+                            <!-- Event points update (only visible if event is active) -->
+                            {% if active_event and user_event_points and user.id in user_event_points %}
+                            <form action="/admin-dashboard/update-user-event-points" method="POST" style="display:inline;">
+                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                <input type="number" name="new_event_points" value="{{ user_event_points[user.id].total_points }}" min="0" style="width:80px;">
+                                <button type="submit" class="btn btn-sm btn-outline-warning">Update Event Points</button>
+                            </form>
+                            {% endif %}
                             <form action="/admin-dashboard/delete-user" method="POST" style="display:inline;">
                                 <input type="hidden" name="user_id" value="{{ user.id }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this user? This action cannot be undone.');">Delete</button>
                             </form>
+                            <!-- Show Reset Points button only if NO event is active -->
+                            {% if not active_event %}
                             <form action="/admin-dashboard/reset-user-points" method="POST" style="display:inline;">
                                 <input type="hidden" name="user_id" value="{{ user.id }}">
                                 <button type="submit" class="btn btn-sm btn-outline-warning" onclick="return confirm('Are you sure you want to reset this user\'s points?');">Reset Points</button>
                             </form>
-                            <form action="/admin-dashboard/update-user-points" method="POST" style="display:inline;">
+                            {% endif %}
+                            {% if active_event and user_event_points and user.id in user_event_points %}
+                            <form action="/admin-dashboard/reset-user-event-points" method="POST" style="display:inline;">
                                 <input type="hidden" name="user_id" value="{{ user.id }}">
-                                <input type="number" name="new_points" value="{{ user.total_points }}" min="0" style="width:80px;">
-                                <button type="submit" class="btn btn-sm btn-outline-primary">Update Points</button>
+                                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to reset this user\'s event points?');">Reset Event Points</button>
                             </form>
+                            {% endif %}
                             {% else %}
                             <span class="badge bg-secondary">Admin</span>
                             {% endif %}
@@ -117,15 +137,24 @@
                             <td>{{ house.total_points }}</td>
                         {% endif %}
                         <td>
-                            <form action="/admin-dashboard/reset-house" method="POST" style="display:inline;">
-                                <input type="hidden" name="house_id" value="{{ house.id }}">
-                                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to reset all points for {{ house.name }} house? This action cannot be undone.');">Reset Points</button>
-                            </form>
+                            {% if not active_event %}
                             <form action="/admin-dashboard/update-house-points" method="POST" style="display:inline;">
                                 <input type="hidden" name="house_id" value="{{ house.id }}">
                                 <input type="number" name="new_points" value="{{ house.total_points }}" min="0" style="width:80px;">
                                 <button type="submit" class="btn btn-sm btn-outline-primary">Update Points</button>
                             </form>
+                            {% endif %}
+                            <form action="/admin-dashboard/reset-house" method="POST" style="display:inline;">
+                                <input type="hidden" name="house_id" value="{{ house.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to reset all points for {{ house.name }} house? This action cannot be undone.');">Reset Points</button>
+                            </form>
+                            {% if active_event and house_event_points and house.name in house_event_points %}
+                            <form action="/admin-dashboard/update-house-event-points" method="POST" style="display:inline;">
+                                <input type="hidden" name="house_id" value="{{ house.id }}">
+                                <input type="number" name="new_event_points" value="{{ house_event_points[house.name].total_points }}" min="0" style="width:80px;">
+                                <button type="submit" class="btn btn-sm btn-outline-warning">Update Event Points</button>
+                            </form>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}

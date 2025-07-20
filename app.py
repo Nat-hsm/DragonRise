@@ -1943,7 +1943,7 @@ def analytics_dashboard():
         thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
         active_users = User.query.filter(
             User.is_admin == False,
-            User.last_login >= thirty_days_ago  # <-- correct variable name
+            User.last_login >= thirty_days_ago
         ).count()
         
         # Prepare house stats and query filters based on active event
@@ -2254,4 +2254,145 @@ def update_house_points():
         db.session.rollback()
         app.logger.error(f"Error updating house points: {str(e)}")
         flash('An error occurred while updating house points.', 'danger')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/update-user-event-points', methods=['POST'])
+@login_required
+@admin_required
+def update_user_event_points():
+    user_id = request.form.get('user_id')
+    new_event_points = request.form.get('new_event_points')
+    user = User.query.get_or_404(user_id)
+    active_event = get_active_event()
+    if not active_event:
+        flash('No active event.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+    try:
+        new_event_points = int(new_event_points)
+        if new_event_points < 0:
+            flash('Points cannot be negative.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        # Find all logs for this user in the event period
+        start = active_event.start_date
+        end = active_event.end_date
+        logs = ClimbLog.query.filter(
+            ClimbLog.user_id == user.id,
+            ClimbLog.timestamp >= start,
+            ClimbLog.timestamp <= end
+        ).all()
+        # Optionally, you can update points in logs or add a new log for the event period
+        # For simplicity, let's add a single log representing the event points
+        # (You may want to clear old logs in the event period first)
+        for log in logs:
+            db.session.delete(log)
+        new_log = ClimbLog(
+            user_id=user.id,
+            flights=0,
+            points=new_event_points
+        )
+        new_log.timestamp = start + (end - start) / 2  # Middle of event
+        db.session.add(new_log)
+        db.session.commit()
+        flash(f'Event points for user {user.username} updated to {new_event_points}.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating user event points: {str(e)}")
+        flash('An error occurred while updating event points.', 'danger')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/reset-user-event-points', methods=['POST'])
+@login_required
+@admin_required
+def reset_user_event_points():
+    user_id = request.form.get('user_id')
+    user = User.query.get_or_404(user_id)
+    active_event = get_active_event()
+    if not active_event:
+        flash('No active event.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+    try:
+        start = active_event.start_date
+        end = active_event.end_date
+        # Delete all logs for this user within the event period
+        ClimbLog.query.filter(
+            ClimbLog.user_id == user.id,
+            ClimbLog.timestamp >= start,
+            ClimbLog.timestamp <= end
+        ).delete(synchronize_session=False)
+        StandingLog.query.filter(
+            StandingLog.user_id == user.id,
+            StandingLog.timestamp >= start,
+            StandingLog.timestamp <= end
+        ).delete(synchronize_session=False)
+        StepLog.query.filter(
+            StepLog.user_id == user.id,
+            StepLog.timestamp >= start,
+            StepLog.timestamp <= end
+        ).delete(synchronize_session=False)
+        db.session.commit()
+        flash(f'Event points for user {user.username} have been reset.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error resetting user event points: {str(e)}")
+        flash('An error occurred while resetting event points.', 'danger')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/update-house-event-points', methods=['POST'])
+@login_required
+@admin_required
+def update_house_event_points():
+    house_id = request.form.get('house_id')
+    new_event_points = request.form.get('new_event_points')
+    house = House.query.get_or_404(house_id)
+    active_event = get_active_event()
+    if not active_event:
+        flash('No active event.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+    try:
+        new_event_points = int(new_event_points)
+        if new_event_points < 0:
+            flash('Points cannot be negative.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+        # Fetch all users in the house (including admins)
+        users = User.query.filter_by(house=house.name).all()
+        user_ids = [user.id for user in users]
+
+        # Remove all logs for this house in the event period
+        ClimbLog.query.filter(
+            ClimbLog.user_id.in_(user_ids),
+            ClimbLog.timestamp >= active_event.start_date,
+            ClimbLog.timestamp <= active_event.end_date
+        ).delete(synchronize_session=False)
+        StandingLog.query.filter(
+            StandingLog.user_id.in_(user_ids),
+            StandingLog.timestamp >= active_event.start_date,
+            StandingLog.timestamp <= active_event.end_date
+        ).delete(synchronize_session=False)
+        StepLog.query.filter(
+            StepLog.user_id.in_(user_ids),
+            StepLog.timestamp >= active_event.start_date,
+            StepLog.timestamp <= active_event.end_date
+        ).delete(synchronize_session=False)
+
+        # Distribute points equally among all users in the house
+        if users:
+            points_per_user = new_event_points // len(users)
+            remainder = new_event_points % len(users)
+            for i, user in enumerate(users):
+                points = points_per_user + (1 if i < remainder else 0)
+                log = ClimbLog(
+                    user_id=user.id,
+                    flights=0,
+                    points=points
+                )
+                log.timestamp = active_event.start_date + (active_event.end_date - active_event.start_date) / 2
+                db.session.add(log)
+
+        db.session.commit()
+        flash(f'Event points for house {house.name} updated to {new_event_points}.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating house event points: {str(e)}")
+        flash('An error occurred while updating house event points.', 'danger')
     return redirect(url_for('admin_dashboard'))
