@@ -22,29 +22,56 @@ class CognitoAuth:
         self.redirect_uri = app.config.get('COGNITO_REDIRECT_URI')
         self.domain = app.config.get('COGNITO_DOMAIN')
         
+        # Extract full domain name if it's the complete URL
+        if self.domain and '.auth.' in self.domain:
+            # If the domain already includes the full domain path, use it as is
+            self.full_domain = self.domain
+        else:
+            # Otherwise, construct the domain with the format {domain}.auth.{region}.amazoncognito.com
+            self.full_domain = f"{self.domain}.auth.{self.region}.amazoncognito.com"
+        
+        # Log the configured domain for debugging
+        app.logger.info(f"Cognito domain configured as: {self.full_domain}")
+        
         # Initialize Cognito client
         self.client = boto3.client('cognito-idp', region_name=self.region)
     
     def get_login_url(self, state=None):
         """Generate login URL for Cognito hosted UI"""
+        from urllib.parse import quote
+        
+        # Ensure redirect_uri is properly URL encoded
+        encoded_redirect_uri = quote(self.redirect_uri, safe='')
+        
         params = {
             'client_id': self.client_id,
             'response_type': 'code',
             'scope': 'email+openid+profile',
-            'redirect_uri': self.redirect_uri
+            'redirect_uri': encoded_redirect_uri,
+            'prompt': 'login'
         }
         
         if state:
             params['state'] = state
 
-        query_string = '&'.join([f"{k}={quote(v)}" for k, v in params.items()])
-        # The domain format is correct - don't change it
-        return f"https://{self.domain}.auth.{self.region}.amazoncognito.com/login?{query_string}"
+        # Build query string with properly encoded parameters
+        query_params = []
+        for k, v in params.items():
+            query_params.append(f"{k}={v}")
+        
+        query_string = '&'.join(query_params)
+        
+        # Log the full URL for debugging
+        if self.app:
+            self.app.logger.info(f"Generated Cognito login URL with redirect URI: {encoded_redirect_uri}")
+        
+        # Use the full domain to ensure correct URL format
+        return f"https://{self.full_domain}/login?{query_string}"
     
     def get_token(self, code):
         """Exchange authorization code for tokens"""
-        # Use the domain from config instead of hardcoding
-        token_url = f"https://{self.domain}.auth.{self.region}.amazoncognito.com/oauth2/token"
+        # Use the full domain to ensure correct URL format
+        token_url = f"https://{self.full_domain}/oauth2/token"
         
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded'

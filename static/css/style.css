@@ -83,7 +83,7 @@ body {
 
 /* House Rankings Card */
 .house-rankings-card {
-    height: calc(100% - 40px);
+   /* height: calc(100% - 40px); /* Adjust for the margin-bottom of stats-card */
     display: flex;
     flex-direction: column;
 }
@@ -298,71 +298,73 @@ body {
     flex: 1;
 }
 
-/* Animation keyframes */
-@keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
+.fitness-integration-btn {
+    border: 1px solid #dee2e6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background-color: #f8f9fa;
+    transition: all 0.2s;
 }
 
-@keyframes fadeInOut {
-    0% { opacity: 0.8; }
-    50% { opacity: 1; }
-    100% { opacity: 0.8; }
+.fitness-integration-btn:hover {
+    background-color: #e9ecef;
+    border-color: #ced4da;
 }
 
-/* Active nav link styling */
-.navbar-dark .navbar-nav .nav-link.active {
-    color: #ffffff;
-    font-weight: bold;
+.icon-img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    vertical-align: middle;
+    display: inline-block;
 }
 
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .points-display {
-        font-size: 2rem;
-    }
-    
-    .chart-container {
-        height: 500px !important;
-        min-height: 500px !important;
-        max-height: 500px !important;
-    }
-    
-    .chart-wrapper {
-        height: 400px !important;
-        min-height: 400px !important;
-        max-height: 400px !important;
-    }
-    
-    #barChartsSection, #pieChartsSection {
-        min-height: 550px !important;
-        height: 550px !important;
-    }
-    
-    .house-rankings-card {
-        height: auto;
-    }
-    
-    .house-grid {
-        height: auto;
-    }
-    
-    .house-col {
-        height: auto;
-        margin-bottom: 20px;
-    }
-    
-    .d-flex.flex-wrap {
-        justify-content: center;
-    }
-    
-    .stat-box-horizontal {
-        min-width: 130px;
-        margin: 5px;
-    }
-    
-    .stat-box-horizontal h4 {
-        font-size: 1.1rem;
-    }
+.btn-opaque-rect {
+    border: 1px solid #dee2e6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background-color: #f8f9fa;
+    transition: all 0.2s;
+}
+
+.btn-opaque-rect:hover {
+    background-color: #e9ecef;
+    border-color: #ced4da;
+}
+
+.integration-result {
+    font-size: 1.1em;
+    min-height: 1.5em;
+    padding: 0.25rem;
+}
+
+/* Collapsible content styles */
+.collapse-text-hide {
+    display: none;
+}
+
+.collapse.show .collapse-text-hide {
+    display: inline;
+}
+
+.collapse.show .collapse-text-show {
+    display: none;
+}
+
+.empty-log-item {
+    height: 58px;
+    border-color: #f8f9fa;
+}
+
+/* Tab content borders */
+.tab-content {
+    border-left: 1px solid #dee2e6;
+    border-right: 1px solid #dee2e6;
+    border-bottom: 1px solid #dee2e6;
+    border-bottom-left-radius: 0.25rem;
+    border-bottom-right-radius: 0.25rem;
 }

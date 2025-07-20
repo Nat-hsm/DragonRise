@@ -45,15 +45,13 @@ def verify_content_type(content_type):
     """Decorator to verify request content type"""
     def decorator(f):
         @wraps(f)
-<<<<<<< HEAD
-        @limiter.limit("200 per minute")  # Changed from 5 per minute
-=======
->>>>>>> 5d0121cb2078ca75662eca00abf2a84e732ce063
+
         def decorated_function(*args, **kwargs):
-            if request.content_type and content_type in request.content_type:
+            if request.headers.get('Content-Type', '').startswith(content_type):
                 return f(*args, **kwargs)
             else:
-                abort(415)  # Unsupported Media Type
+                log_access_attempt(False, "Content Type Verification", f"Invalid content type: {request.headers.get('Content-Type')}")
+                abort(400)  # Bad Request
         return decorated_function
     return decorator
 

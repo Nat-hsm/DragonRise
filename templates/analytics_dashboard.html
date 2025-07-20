@@ -23,195 +23,393 @@
 <div class="row">
     <div class="col-md-12 mb-4">
         <div class="stats-card">
-            <h2>DragonRise Analytics</h2>
-            <p class="text-muted">Visualize house performance data</p>
-            
-            <!-- Chart Type Selection -->
-            <div class="btn-group mb-4" role="group">
-                <button type="button" class="btn btn-primary active" id="barChartBtn">Bar Charts</button>
-                <button type="button" class="btn btn-outline-primary" id="pieChartBtn">Pie Charts</button>
-            </div>
-            
-            <!-- Data Type Selection -->
-            <div class="btn-group mb-4 ms-3" role="group">
-                <button type="button" class="btn btn-success active" id="climbDataBtn">Climbing</button>
-                <button type="button" class="btn btn-outline-success" id="standingDataBtn">Standing</button>
-                <button type="button" class="btn btn-outline-success" id="stepsDataBtn">Steps</button>
-                <button type="button" class="btn btn-outline-success" id="combinedDataBtn">Combined</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Debug information (hidden by default) -->
-<div class="row" id="debugInfo" style="display: none;">
-    <div class="col-md-12">
-        <div class="stats-card">
-            <h3>Debug Information</h3>
-            <div class="alert alert-warning">
-                <p id="debugMessage"></p>
-                <pre id="debugData"></pre>
-            </div>
-            <button type="button" class="btn btn-sm btn-outline-secondary debug-close-btn">Close</button>
-        </div>
-    </div>
-</div>
-
-<!-- Bar Charts Section -->
-<div id="barChartsSection">
-    <div class="row">
-        <!-- Climbing Bar Chart -->
-        <div class="col-md-12 mb-4 chart-container" id="climbBarChartContainer">
-            <div class="stats-card h-100">
-                <h3>Climbing Data by House</h3>
-                <div class="chart-wrapper">
-                    <canvas id="climbBarChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="row">
-        <!-- Standing Bar Chart -->
-        <div class="col-md-12 mb-4 chart-container" id="standingBarChartContainer" style="display: none;">
-            <div class="stats-card h-100">
-                <h3>Standing Time by House</h3>
-                <div class="chart-wrapper">
-                    <canvas id="standingBarChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="row">
-        <!-- Steps Bar Chart -->
-        <div class="col-md-12 mb-4 chart-container" id="stepsBarChartContainer" style="display: none;">
-            <div class="stats-card h-100">
-                <h3>Steps by House</h3>
-                <div class="chart-wrapper">
-                    <canvas id="stepsBarChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="row">
-        <!-- Combined Bar Chart -->
-        <div class="col-md-12 mb-4 chart-container" id="combinedBarChartContainer" style="display: none;">
-            <div class="stats-card h-100">
-                <h3>Combined Performance by House</h3>
-                <div class="chart-wrapper">
-                    <canvas id="combinedBarChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Pie Charts Section -->
-<div id="pieChartsSection" style="display: none;">
-    <div class="row">
-        <!-- Climbing Pie Chart -->
-        <div class="col-md-12 mb-4 chart-container" id="climbPieChartContainer">
-            <div class="stats-card h-100">
-                <h3>Climbing Points Distribution</h3>
-                <div class="chart-wrapper">
-                    <canvas id="climbPieChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="row">
-        <!-- Standing Pie Chart -->
-        <div class="col-md-12 mb-4 chart-container" id="standingPieChartContainer" style="display: none;">
-            <div class="stats-card h-100">
-                <h3>Standing Time Distribution</h3>
-                <div class="chart-wrapper">
-                    <canvas id="standingPieChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="row">
-        <!-- Steps Pie Chart -->
-        <div class="col-md-12 mb-4 chart-container" id="stepsPieChartContainer" style="display: none;">
-            <div class="stats-card h-100">
-                <h3>Steps Distribution</h3>
-                <div class="chart-wrapper">
-                    <canvas id="stepsPieChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="row">
-        <!-- Combined Pie Chart -->
-        <div class="col-md-12 mb-4 chart-container" id="combinedPieChartContainer" style="display: none;">
-            <div class="stats-card h-100">
-                <h3>Total Points Distribution</h3>
-                <div class="chart-wrapper">
-                    <canvas id="combinedPieChart"></canvas>
-                </div>
-            </div>
+            <h2>Analytics Dashboard</h2>
+            <p class="text-muted">Advanced statistics and data analysis for DragonRise</p>
         </div>
     </div>
 </div>
 
 <div class="row">
-    <div class="col-md-12">
+    <div class="col-md-4">
         <div class="stats-card">
-            <h3>House Performance Summary</h3>
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>House</th>
-                        <th>Total Flights</th>
-                        <th>Climbing Points</th>
-                        <th>Standing Time (min)</th>
-                        <th>Standing Points</th>
-                        <th>Total Steps</th>
-                        <th>Steps Points</th>
-                        <th>Total Points</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for house in houses %}
-                    <tr>
-                        <td>
-                            <span class="house-badge {{ house.name }}">{{ house.name }}</span>
-                        </td>
-                        <td>{{ house.total_flights|default(0) }}</td>
-                        <td>{{ (house.total_flights * 10)|default(0) }}</td>
-                        <td>{{ house.total_standing_time|default(0) }}</td>
-                        <td>{{ house.total_standing_time|default(0) }}</td>
-                        <td>{{ house.total_steps|default(0) }}</td>
-                        <td>{{ (house.total_steps // 100)|default(0) }}</td>
-                        <td>{{ house.total_points|default(0) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <h3>User Statistics</h3>
+            <div class="stat-item">
+                <span class="stat-label">Total Users:</span>
+                <span class="stat-value">{{ total_users }}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Active Users (30 days):</span>
+                <span class="stat-value">{{ active_users }}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Active Rate:</span>
+                <span class="stat-value">{{ (active_users / total_users * 100)|round|int if total_users > 0 else 0 }}%</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8">
+        <div class="stats-card">
+            <h3>Activity Overview</h3>
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="activity-stat">
+                        <h4>Stairs Climbed</h4>
+                        <div class="activity-count">{{ total_climbs }}</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="activity-stat">
+                        <h4>Standing Sessions</h4>
+                        <div class="activity-count">{{ total_standings }}</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="activity-stat">
+                        <h4>Step Entries</h4>
+                        <div class="activity-count">{{ total_step_logs }}</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
-<div id="chartDataContainer" 
-    data-house-names="{{ house_names }}"
-    data-house-colors="{{ house_colors }}"
-    data-climbing="{{ climbing_data }}"
-    data-standing="{{ standing_data }}"
-    data-steps="{{ steps_data }}"
-    data-combined="{{ combined_data }}"
-    style="display: none;">
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="stats-card">
+            <h3>Activity Trend (Last 30 Days)</h3>
+            <canvas id="activityTrendChart" height="100"></canvas>
+        </div>
+    </div>
 </div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="stats-card">
+            <h3>House Activity Distribution</h3>
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>House</th>
+                            <th>Members</th>
+                            <th>Total Activities</th>
+                            <th>Points</th>
+                            <th>Avg. Per Member</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for house in house_stats %}
+                        <tr>
+                            <td>
+                                <span class="house-badge {{ house.name }}">{{ house.name }}</span>
+                            </td>
+                            <td>{{ house.members }}</td>
+                            <td>{{ house.total_activities }}</td>
+                            <td>{{ house.points }}</td>
+                            <td>{{ (house.points / house.members)|round|int if house.members > 0 else 0 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="stats-card">
+            <h3>Activity by Day of Week</h3>
+            <canvas id="weekdayChart" height="250"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="stats-card">
+            <h3>House Comparison</h3>
+            <canvas id="houseComparisonChart" height="120"></canvas>
+        </div>
+    </div>
+</div>
+
+<style>
+    .stats-card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .stat-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .stat-label {
+        font-weight: 500;
+        color: #555;
+    }
+    
+    .stat-value {
+        font-weight: 600;
+        color: #333;
+    }
+    
+    .activity-stat {
+        text-align: center;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 6px;
+    }
+    
+    .activity-count {
+        font-size: 24px;
+        font-weight: bold;
+        color: #007bff;
+        margin-top: 10px;
+    }
+    
+    .house-badge {
+        padding: 5px 10px;
+        border-radius: 15px;
+        color: white;
+        font-weight: bold;
+        display: inline-block;
+        min-width: 80px;
+        text-align: center;
+    }
+    
+    .Black {
+        background-color: var(--black-house);
+    }
+    
+    .Blue {
+        background-color: var(--blue-house);
+    }
+    
+    .Green {
+        background-color: var(--green-house);
+    }
+    
+    .White {
+        background-color: var(--white-house);
+        color: #000000;
+        border: 2px solid #e6e6e6;
+        box-shadow: 0 2px 3px rgba(0,0,0,0.15);
+    }
+    
+    .Gold {
+        background-color: var(--gold-house);
+        color: black;
+    }
+    
+    .Purple {
+        background-color: var(--purple-house);
+    }
+    
+    .Admin {
+        background-color: #6c757d;
+    }
+</style>
 {% endblock %}
 
 {% block scripts %}
 {{ super() }}
-<!-- Load Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<!-- Load our consolidated script with forced cache busting -->
-<script src="{{ url_for('static', filename='js/analytics_dashboard.js') }}?v={{ now }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Activity Trend Chart
+    const trendCtx = document.getElementById('activityTrendChart').getContext('2d');
+    const trendData = {
+        labels: [{% for item in trend_data %} '{{ item.date }}', {% endfor %}],
+        datasets: [
+            {
+                label: 'Stair Climbs',
+                data: [{% for item in trend_data %} {{ item.climbs }}, {% endfor %}],
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1,
+                tension: 0.4
+            },
+            {
+                label: 'Standing',
+                data: [{% for item in trend_data %} {{ item.standings }}, {% endfor %}],
+                backgroundColor: 'rgba(255, 206, 86, 0.2)',
+                borderColor: 'rgba(255, 206, 86, 1)',
+                borderWidth: 1,
+                tension: 0.4
+            },
+            {
+                label: 'Steps',
+                data: [{% for item in trend_data %} {{ item.steps }}, {% endfor %}],
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                borderColor: 'rgba(75, 192, 192, 1)',
+                borderWidth: 1,
+                tension: 0.4
+            }
+        ]
+    };
+    
+    new Chart(trendCtx, {
+        type: 'line',
+        data: trendData,
+        options: {
+            responsive: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Activity Trend Over Last 30 Days',
+                    font: {
+                        size: 16
+                    }
+                },
+                legend: {
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                    padding: 10,
+                    cornerRadius: 6,
+                    callbacks: {
+                        label: function(context) {
+                            return context.dataset.label + ': ' + context.parsed.y;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Weekday Chart
+    const weekdayCtx = document.getElementById('weekdayChart').getContext('2d');
+    const weekdayData = {
+        labels: [{% for item in day_stats %} '{{ item.day }}', {% endfor %}],
+        datasets: [
+            {
+                label: 'Total Activities',
+                data: [{% for item in day_stats %} {{ item.total }}, {% endfor %}],
+                backgroundColor: [
+                    'rgba(54, 162, 235, 0.7)',
+                    'rgba(255, 206, 86, 0.7)',
+                    'rgba(75, 192, 192, 0.7)',
+                    'rgba(153, 102, 255, 0.7)',
+                    'rgba(255, 159, 64, 0.7)',
+                    'rgba(255, 99, 132, 0.7)',
+                    'rgba(201, 203, 207, 0.7)'
+                ],
+                borderWidth: 1
+            }
+        ]
+    };
+    
+    new Chart(weekdayCtx, {
+        type: 'bar',
+        data: weekdayData,
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Activity by Day of Week',
+                    font: {
+                        size: 16
+                    }
+                },
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                    padding: 10,
+                    cornerRadius: 6
+                }
+            }
+        }
+    });
+    
+    // House Comparison Chart
+    const houseCtx = document.getElementById('houseComparisonChart').getContext('2d');
+    const houseData = {
+        labels: [{% for house in house_stats %} '{{ house.name }}', {% endfor %}],
+        datasets: [
+            {
+                label: 'Stair Climbs',
+                data: [{% for house in house_stats %} {{ house.climbs }}, {% endfor %}],
+                backgroundColor: 'rgba(54, 162, 235, 0.7)'
+            },
+            {
+                label: 'Standing Sessions',
+                data: [{% for house in house_stats %} {{ house.standings }}, {% endfor %}],
+                backgroundColor: 'rgba(255, 206, 86, 0.7)'
+            },
+            {
+                label: 'Steps',
+                data: [{% for house in house_stats %} {{ house.steps }}, {% endfor %}],
+                backgroundColor: 'rgba(75, 192, 192, 0.7)'
+            }
+        ]
+    };
+    
+    new Chart(houseCtx, {
+        type: 'bar',
+        data: houseData,
+        options: {
+            responsive: true,
+            scales: {
+                x: {
+                    stacked: true,
+                },
+                y: {
+                    stacked: true,
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Activity Distribution by House',
+                    font: {
+                        size: 16
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                    padding: 10,
+                    cornerRadius: 6,
+                    callbacks: {
+                        label: function(context) {
+                            let activityType = context.dataset.label;
+                            let value = context.parsed.y;
+                            return `${activityType}: ${value}`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
 {% endblock %}

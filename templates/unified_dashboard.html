@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="stats-card">
+            <h2>Welcome, {{ current_user.username }}</h2>
+            <p class="text-muted">{{ current_user.house }} House Member</p>
+            
+            {% if active_event %}
+            <div class="alert alert-info">
+                <i class="fas fa-trophy"></i> Active Event: <strong>{{ active_event.name }}</strong> 
+                ({{ active_event.start_date.strftime('%Y-%m-%d') }} to {{ active_event.end_date.strftime('%Y-%m-%d') }})
+                <br>Points displayed are for the current event only.
+            </div>
+            {% endif %}
+            
+            <hr>
+            <div class="row mb-3">
+                <div class="col-6">
+                    <h4>Total Flights</h4>
+                    <div class="points-display">
+                        {% if active_event and user_event_points %}
+                        {{ user_event_points.total_flights }}
+                        {% else %}
+                        {{ current_user.total_flights }}
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-6">
+                    <h4>Standing Time</h4>
+                    <div class="points-display">
+                        {% if active_event and user_event_points %}
+                        {{ user_event_points.total_standing_time }}
+                        {% else %}
+                        {{ current_user.total_standing_time }}
+                        {% endif %}
+                    </div>
+                    <p class="text-muted">minutes</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-6">
+                    <h4>Total Steps</h4>
+                    <div class="points-display">
+                        {% if active_event and user_event_points %}
+                        {{ user_event_points.total_steps if user_event_points.total_steps is not none else 0 }}
+                        {% else %}
+                        {{ current_user.total_steps if current_user.total_steps is not none else 0 }}
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-6">
+                    <h4>Total Points</h4>
+                    <div class="points-display">
+                        {% if active_event and user_event_points %}
+                        {{ user_event_points.total_points }}
+                        {% else %}
+                        {{ current_user.total_points }}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- New Fitness Integration Card -->
+        <div class="stats-card">
+            <div class="d-flex gap-2 mb-3">
+                {% if current_user.google_fit_token %}
+                    <button type="button" class="btn btn-light fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Google Fit Connected" style="border: 2px solid #28a745; background-color: #f8fff8;">
+                        <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
+                        <span class="ms-2 text-success">Google Fit Connected</span>
+                        <i class="fas fa-check-circle ms-2 text-success"></i>
+                    </button>
+                {% else %}
+                    <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Link Google Fit">
+                        <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
+                        <span class="ms-2">Link Google Fit</span>
+                    </button>
+                {% endif %}
+                
+                <!-- Garmin button remains the same -->
+                <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-garmin-btn" title="Link Garmin">
+                    <img src="{{ url_for('static', filename='garmin_logo.png') }}" alt="Garmin" class="icon-img">
+                    <span class="ms-2">Link Garmin Connect</span>
+                </button>
+            </div>
+
+            {% if current_user.google_fit_token %}
+            <div class="alert alert-info" role="alert">
+                <i class="fas fa-sync-alt"></i> Your Google Fit steps are being synced automatically every 2 hours.
+                <small class="d-block mt-1">Last sync: {{ current_user.google_token_expiry.strftime('%Y-%m-%d %H:%M') if current_user.google_token_expiry else 'Never' }}</small>
+            </div>
+            <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn">
+                Sync Google Fit Steps
+            </button>
+            {% else %}
+            <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn" disabled>
+                Connect Google Fit First
+            </button>
+            {% endif %}
+            
+            <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-garmin-steps-btn">
+                Log Garmin Steps & Stairs
+            </button>
+        </div>
+
+        <!-- Activity Tabs -->
+        <div class="stats-card">
+            <ul class="nav nav-tabs" id="activityTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="climb-tab" data-bs-toggle="tab" data-bs-target="#climb-content" type="button" role="tab" aria-controls="climb-content" aria-selected="true">Log Climb</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="standing-tab" data-bs-toggle="tab" data-bs-target="#standing-content" type="button" role="tab" aria-controls="standing-content" aria-selected="false">Log Standing</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="steps-tab" data-bs-toggle="tab" data-bs-target="#steps-content" type="button" role="tab" aria-controls="steps-content" aria-selected="false">Log Steps</button>
+                </li>
+            </ul>
+            <div class="tab-content p-3" id="activityTabsContent">
+                <!-- Climb Tab -->
+                <div class="tab-pane fade show active" id="climb-content" role="tabpanel" aria-labelledby="climb-tab">
+                    <form action="{{ url_for('log_climb') }}" method="post">
+                        <div class="mb-3">
+                            <label for="flights" class="form-label">Number of Flights</label>
+                            <input type="number" class="form-control" id="flights" name="flights" required min="1">
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Log Climb</button>
+                    </form>
+                    
+                    <div class="mt-3">
+                        <h5>Upload Health App Screenshot</h5>
+                        <form action="{{ url_for('upload_screenshot') }}" method="post" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <input type="file" class="form-control" id="screenshot" name="screenshot" accept=".jpg,.jpeg,.png" required>
+                            </div>
+                            <button type="submit" class="btn btn-outline-primary w-100">Analyze Screenshot</button>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- Standing Tab -->
+                <div class="tab-pane fade" id="standing-content" role="tabpanel" aria-labelledby="standing-tab">
+                    <form action="{{ url_for('log_standing') }}" method="post">
+                        <div class="mb-3">
+                            <label for="minutes" class="form-label">Minutes Stood</label>
+                            <input type="number" class="form-control" id="minutes" name="minutes" required min="1">
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Log Standing Time</button>
+                    </form>
+                    
+                    <div class="mt-3">
+                        <h5>Upload Health App Screenshot</h5>
+                        <form action="{{ url_for('upload_standing_screenshot') }}" method="post" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <input type="file" class="form-control" id="standing-screenshot" name="screenshot" accept=".jpg,.jpeg,.png" required>
+                            </div>
+                            <button type="submit" class="btn btn-outline-primary w-100">Analyze Screenshot</button>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- Steps Tab - Now without the integration buttons -->
+                <div class="tab-pane fade" id="steps-content" role="tabpanel" aria-labelledby="steps-tab">
+
+                    <form action="{{ url_for('log_steps') }}" method="post">
+                        <div class="mb-3">
+                            <label for="steps" class="form-label">Number of Steps</label>
+                            <input type="number" class="form-control" id="steps" name="steps" required min="1">
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Log Steps</button>
+                    </form>
+                    
+                    <div class="mt-3">
+                        <h5>Upload Health App Screenshot</h5>
+                        <form action="{{ url_for('upload_steps_screenshot') }}" method="post" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <input type="file" class="form-control" id="steps-screenshot" name="screenshot" accept=".jpg,.jpeg,.png" required>
+                            </div>
+                            <button type="submit" class="btn btn-outline-primary w-100">Analyze Screenshot</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-card">
+            <h3>Recent Activity</h3>
+            {% if all_activities %}
+            <ul class="list-group">
+                {% for activity in all_activities[:5] %}
+                <li class="list-group-item">
+                    {% if activity.type == 'climb' %}
+                    <span class="badge bg-primary">{{ activity.value }} flights</span>
+                    {% elif activity.type == 'standing' %}
+                    <span class="badge bg-info text-dark">{{ activity.value }} min</span>
+                    {% elif activity.type == 'steps' %}
+                    <span class="badge bg-secondary">{{ activity.value }} steps</span>
+                    {% endif %}
+                    <span class="badge bg-success">+{{ activity.points }} points</span>
+                    <small class="text-muted float-end">{{ activity.formatted_timestamp }}</small>
+                </li>
+                {% endfor %}
+            </ul>
+            
+            {% if all_activities|length > 5 %}
+            <div class="collapse" id="moreLogsCollapse">
+                <ul class="list-group mt-2">
+                    {% for activity in all_activities[5:15] %}
+                    <li class="list-group-item">
+                        {% if activity.type == 'climb' %}
+                        <span class="badge bg-primary">{{ activity.value }} flights</span>
+                        {% elif activity.type == 'standing' %}
+                        <span class="badge bg-info text-dark">{{ activity.value }} min</span>
+                        {% elif activity.type == 'steps' %}
+                        <span class="badge bg-secondary">{{ activity.value }} steps</span>
+                        {% endif %}
+                        <span class="badge bg-success">+{{ activity.points }} points</span>
+                        <small class="text-muted float-end">{{ activity.formatted_timestamp }}</small>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary w-100 mt-2" type="button" 
+                    data-bs-toggle="collapse" data-bs-target="#moreLogsCollapse" 
+                    aria-expanded="false" aria-controls="moreLogsCollapse">
+                <span class="collapse-text-show">Show More ({{ all_activities|length - 5 }})</span>
+                <span class="collapse-text-hide">Show Less</span>
+            </button>
+            {% endif %}
+            {% else %}
+            <div class="text-center py-4">
+                <p class="text-muted">No activity logged yet</p>
+                <p class="text-muted">Log your first activity to get started!</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="stats-card house-rankings-card">
+            <h3>House Rankings</h3>
+            <div class="row house-grid">
+                {% for house in houses %}
+                <div class="col-md-6 house-col">
+                    <div class="house-card {{ house.name }}">
+                        <h4>{{ house.name }} House</h4>
+                        <div class="points-display">
+                            {% if active_event and house_event_points and house_event_points[house.name] %}
+                            {{ house_event_points[house.name].total_points }}
+                            {% else %}
+                            {{ house.total_points }}
+                            {% endif %}
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col-4">
+                                <small>Flights</small>
+                                <p>
+                                    {% if active_event and house_event_points and house_event_points[house.name] %}
+                                    {{ house_event_points[house.name].total_flights }}
+                                    {% else %}
+                                    {{ house.total_flights }}
+                                    {% endif %}
+                                </p>
+                            </div>
+                            <div class="col-4">
+                                <small>Standing</small>
+                                <p>
+                                    {% if active_event and house_event_points and house_event_points[house.name] %}
+                                    {{ house_event_points[house.name].total_standing_time }} min
+                                    {% else %}
+                                    {{ house.total_standing_time }} min
+                                    {% endif %}
+                                </p>
+                            </div>
+                            <div class="col-4">
+                                <small>Steps</small>
+                                <p>
+                                    {% if active_event and house_event_points and house_event_points[house.name] %}
+                                    {{ house_event_points[house.name].total_steps|default(0) }}
+                                    {% else %}
+                                    {{ house.total_steps|default(0) }}
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Add this section for Player Rankings -->
+        <div class="stats-card mt-4">
+            <h3>Player Rankings</h3>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Username</th>
+                            <th>House</th>
+                            <th>Flights</th>
+                            <th>Standing</th>
+                            <th>Steps</th>
+                            <th>Total Points</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in leaderboard %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ user.username }}</td>
+                            <td>
+                                <span class="house-badge {{ user.house }}">{{ user.house }}</span>
+                            </td>
+                            <td>
+                                {% if active_event and active_event_points_for_user[user.id] is defined %}
+                                {{ active_event_points_for_user[user.id].total_flights }}
+                                {% else %}
+                                {{ user.total_flights }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if active_event and active_event_points_for_user[user.id] is defined %}
+                                {{ active_event_points_for_user[user.id].total_standing_time }} min
+                                {% else %}
+                                {{ user.total_standing_time }} min
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if active_event and active_event_points_for_user[user.id] is defined %}
+                                {{ active_event_points_for_user[user.id].total_steps|default(0) }}
+                                {% else %}
+                                {{ user.total_steps|default(0) }}
+                                {% endif %}
+                            </td>
+                            <td><strong>
+                                {% if active_event and active_event_points_for_user[user.id] is defined %}
+                                {{ active_event_points_for_user[user.id].total_points }}
+                                {% else %}
+                                {{ user.total_points }}
+                                {% endif %}
+                            </strong></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.collapse-text-hide {
+    display: none;
+}
+
+.collapse.show .collapse-text-hide {
+    display: inline;
+}
+
+.collapse.show .collapse-text-show {
+    display: none;
+}
+
+.empty-log-item {
+    height: 58px;
+    border-color: #f8f9fa;
+}
+
+.tab-content {
+    border-left: 1px solid #dee2e6;
+    border-right: 1px solid #dee2e6;
+    border-bottom: 1px solid #dee2e6;
+    border-bottom-left-radius: 0.25rem;
+    border-bottom-right-radius: 0.25rem;
+}
+</style>
+
+<script>
+document.getElementById('get-google-fit-steps-btn').onclick = function() {
+    const resultDiv = document.getElementById('google-fit-steps-result');
+    resultDiv.textContent = "Fetching steps...";
+    fetch('/get_google_fit_steps')
+        .then(res => res.json())
+        .then(data => {
+            if (data.steps !== undefined) {
+                // document.getElementById('steps').value = data.steps; // <-- Remove or comment out this line
+                resultDiv.textContent = "Google Fit Steps: " + data.steps;
+            } else if (data.error) {
+                resultDiv.textContent = "Error: " + data.error;
+            } else {
+                resultDiv.textContent = "No data received.";
+            }
+        })
+        .catch(() => {
+            resultDiv.textContent = "Failed to fetch steps.";
+        });
+};
+</script>
+
+<script>
+document.getElementById('link-google-fit-btn').onclick = function() {
+    // Add try-catch to handle routing errors gracefully
+    try {
+        window.location.href = "{{ url_for('google_fit_auth') }}";
+    } catch(e) {
+        console.error("Google Fit auth route not available:", e);
+        alert("Google Fit integration is not currently available.");
+    }
+};
+
+document.getElementById('link-garmin-btn').onclick = function() {
+    // Add try-catch to handle routing errors gracefully
+    try {
+        window.location.href = "{{ url_for('garmin_auth') }}";
+    } catch(e) {
+        console.error("Garmin auth route not available:", e);
+        alert("Garmin integration is not currently available.");
+    }
+};
+
+document.getElementById('get-google-fit-steps-btn').onclick = function() {
+    // Show loading state
+    this.disabled = true;
+    this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+    
+    fetch('/get_google_fit_steps', { method: 'GET' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                window.location.reload(); // Refresh page to show updated points
+            } else {
+                alert("Error: " + (data.error || "Failed to log steps"));
+                this.disabled = false;
+                this.textContent = "Sync Google Fit Steps";
+            }
+        })
+        .catch(() => {
+            alert("Failed to communicate with server");
+            this.disabled = false;
+            this.textContent = "Sync Google Fit Steps";
+        });
+};
+</script>
+
+
+<!-- Add here -->
+<button type="button" class="btn btn-outline-info mb-2 w-100" id="get-garmin-weekly-btn">
+    Get Garmin Weekly
+</button>
+<div id="garmin-weekly-result" class="mb-2 text-center text-muted" style="font-size: 1.1em;"></div>
+
+<script>
+document.getElementById('get-garmin-weekly-btn').onclick = function() {
+    const resultDiv = document.getElementById('garmin-weekly-result');
+    resultDiv.textContent = "Fetching weekly data...";
+    fetch('/get_garmin_weekly')
+        .then(res => res.json())
+        .then(data => {
+            if (data.week) {
+                let html = "<strong>Garmin Weekly:</strong><br>";
+                html += "<table class='table table-sm table-bordered'><thead><tr><th>Date</th><th>Steps</th><th>Floors</th></tr></thead><tbody>";
+                data.week.forEach(day => {
+                    html += `<tr><td>${day.calendarDate}</td><td>${day.steps}</td><td>${day.floorsClimbed}</td></tr>`;
+                });
+                html += "</tbody></table>";
+                resultDiv.innerHTML = html;
+            } else if (data.error) {
+                resultDiv.textContent = "Error: " + data.error;
+            } else {
+                resultDiv.textContent = "No data received.";
+            }
+        })
+        .catch(() => {
+            resultDiv.textContent = "Failed to fetch weekly data.";
+        });
+};
+</script>
+
+{% endblock %}
