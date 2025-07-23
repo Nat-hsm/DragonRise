@@ -65,18 +65,20 @@
         <!-- New Fitness Integration Card -->
         <div class="stats-card">
             <div class="d-flex gap-2 mb-3">
-                {% if current_user.google_fit_token %}
-                    <button type="button" class="btn btn-light fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Google Fit Connected" style="border: 2px solid #28a745; background-color: #f8fff8;">
-                        <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
-                        <span class="ms-2 text-success">Google Fit Connected</span>
-                        <i class="fas fa-check-circle ms-2 text-success"></i>
-                    </button>
-                {% else %}
-                    <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Link Google Fit">
-                        <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
-                        <span class="ms-2">Link Google Fit</span>
-                    </button>
-                {% endif %}
+{% if current_user.google_fit_token and current_user.google_token_expiry and current_user.google_token_expiry > now %}
+    <!-- Show green connected button -->
+    <button type="button" class="btn btn-light fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Google Fit Connected" style="border: 2px solid #28a745; background-color: #f8fff8;">
+        <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
+        <span class="ms-2 text-success">Google Fit Connected</span>
+        <i class="fas fa-check-circle ms-2 text-success"></i>
+    </button>
+{% else %}
+    <!-- Show link button -->
+    <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-google-fit-btn" title="Link Google Fit">
+        <img src="{{ url_for('static', filename='google_fit_icon.png') }}" alt="Google Fit" class="icon-img">
+        <span class="ms-2">Link Google Fit</span>
+    </button>
+{% endif %}
                 
                 <!-- Garmin button remains the same -->
                 <button type="button" class="btn btn-opaque-rect fitness-integration-btn flex-grow-1" id="link-garmin-btn" title="Link Garmin">
@@ -85,20 +87,17 @@
                 </button>
             </div>
 
-            {% if current_user.google_fit_token %}
-            <div class="alert alert-info" role="alert">
-                <i class="fas fa-sync-alt"></i> Your Google Fit steps are being synced automatically every 2 hours.
-                <small class="d-block mt-1">Last sync: {{ current_user.google_token_expiry.strftime('%Y-%m-%d %H:%M') if current_user.google_token_expiry else 'Never' }}</small>
-            </div>
+        {% if current_user.google_fit_token and current_user.google_token_expiry and current_user.google_token_expiry > now %}
             <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn">
-                Sync Google Fit Steps
+            Sync Google Fit Steps
             </button>
-            {% else %}
+        {% else %}
             <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-google-fit-steps-btn" disabled>
-                Connect Google Fit First
+            Connect Google Fit First
             </button>
-            {% endif %}
-            
+        {% endif %}
+
+
             <button type="button" class="btn btn-outline-success mb-2 w-100" id="get-garmin-steps-btn">
                 Log Garmin Steps & Stairs
             </button>
@@ -380,13 +379,17 @@
 
 <script>
 document.getElementById('get-google-fit-steps-btn').onclick = function() {
+    const btn = this;
     const resultDiv = document.getElementById('google-fit-steps-result');
-    resultDiv.textContent = "Fetching steps...";
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Syncing...';
+
     fetch('/get_google_fit_steps')
         .then(res => res.json())
         .then(data => {
+            btn.disabled = false;
+            btn.textContent = "Sync Google Fit Steps";
             if (data.steps !== undefined) {
-                // document.getElementById('steps').value = data.steps; // <-- Remove or comment out this line
                 resultDiv.textContent = "Google Fit Steps: " + data.steps;
             } else if (data.error) {
                 resultDiv.textContent = "Error: " + data.error;
@@ -395,10 +398,14 @@ document.getElementById('get-google-fit-steps-btn').onclick = function() {
             }
         })
         .catch(() => {
+            btn.disabled = false;
+            btn.textContent = "Sync Google Fit Steps";
             resultDiv.textContent = "Failed to fetch steps.";
         });
 };
 </script>
+
+<div id="google-fit-steps-result" class="mb-2 text-center text-muted" style="font-size: 1.1em;"></div>
 
 <script>
 document.getElementById('link-google-fit-btn').onclick = function() {
@@ -421,28 +428,7 @@ document.getElementById('link-garmin-btn').onclick = function() {
     }
 };
 
-document.getElementById('get-google-fit-steps-btn').onclick = function() {
-    // Show loading state
-    this.disabled = true;
-    this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
-    
-    fetch('/get_google_fit_steps', { method: 'GET' })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                window.location.reload(); // Refresh page to show updated points
-            } else {
-                alert("Error: " + (data.error || "Failed to log steps"));
-                this.disabled = false;
-                this.textContent = "Sync Google Fit Steps";
-            }
-        })
-        .catch(() => {
-            alert("Failed to communicate with server");
-            this.disabled = false;
-            this.textContent = "Sync Google Fit Steps";
-        });
-};
+
 </script>
 
 
@@ -478,5 +464,13 @@ document.getElementById('get-garmin-weekly-btn').onclick = function() {
         });
 };
 </script>
+
+{% if current_user.google_fit_token and current_user.google_token_expiry and current_user.google_token_expiry > now %}
+    <form action="{{ url_for('unlink_google_fit') }}" method="post" style="display:inline;">
+        <button type="submit" class="btn btn-danger ms-2" onclick="return confirm('Are you sure you want to unlink Google Fit?');">
+            Unlink Google Fit
+        </button>
+    </form>
+{% endif %}
 
 {% endblock %}

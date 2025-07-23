@@ -10,3 +10,5 @@ migrate = Migrate()
 
 # Make sure this code exists and is correct
 cognito_auth = CognitoAuth()
+
+login_manager.login_view = 'login'

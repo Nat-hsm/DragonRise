@@ -1483,7 +1483,9 @@ def dashboard():
                            leaderboard=leaderboard,
                            active_event=active_event,
                            house_event_points=house_event_points,
-                           active_event_points_for_user=active_event_points_for_user)  # NEW: Pass the dictionary to template
+                           active_event_points_for_user=active_event_points_for_user,  # NEW: Pass the dictionary to template
+                           now=datetime.utcnow(),  # NEW: Pass the current time to the template
+                           )
 
 @app.route('/google_fit_callback')
 def google_fit_callback():
@@ -1542,18 +1544,13 @@ def google_fit_callback():
 @app.route('/get_google_fit_steps', methods=['GET'])
 @login_required
 def get_google_fit_steps():
-    # Get token from user model instead of session
     access_token = current_user.google_fit_token
     if not access_token:
         return jsonify({"error": "Google Fit not linked"}), 401
 
-    # Get today's start and end time in milliseconds
-    from datetime import datetime, timedelta
-
     now = datetime.utcnow()
     start_of_day = datetime(now.year, now.month, now.day)
     end_of_day = start_of_day + timedelta(days=1)
-
     start_time_millis = int(start_of_day.timestamp() * 1000)
     end_time_millis = int(end_of_day.timestamp() * 1000)
 
@@ -1587,7 +1584,36 @@ def get_google_fit_steps():
                     for value in point.get("value", []):
                         total_steps_today += value.get("intVal", 0)
 
-        # Add success flag to indicate request was successful
+        # Update user and house stats
+        # Only log if steps are greater than the last log for today
+        today = start_of_day.replace(tzinfo=timezone.utc)
+        tomorrow = end_of_day.replace(tzinfo=timezone.utc)
+        latest_log = StepLog.query.filter(
+            StepLog.user_id == current_user.id,
+            StepLog.timestamp >= today,
+            StepLog.timestamp < tomorrow
+        ).order_by(StepLog.steps.desc()).first()
+        existing_steps = latest_log.steps if latest_log else 0
+
+        if total_steps_today > existing_steps:
+            incremental_steps = total_steps_today - existing_steps
+            multiplier = get_points_multiplier()
+            points = (incremental_steps // 100) * multiplier
+
+            log = StepLog(user_id=current_user.id, steps=total_steps_today, points=points)
+            db.session.add(log)
+
+            current_user.total_steps += incremental_steps
+            current_user.total_points += points
+
+            house = House.query.filter_by(name=current_user.house).first()
+            if house:
+                house.total_steps += incremental_steps
+                house.total_points += points
+
+            db.session.commit()
+            log_activity(app, current_user.id, 'Google Fit Steps Synced', f'{incremental_steps} new steps ({points} points)')
+
         return jsonify({"success": True, "steps": total_steps_today})
 
     except Exception as e:
@@ -2052,3 +2078,19 @@ def analytics_dashboard():
         app.logger.error(f"Error in analytics dashboard: {str(e)}")
         flash('An error occurred while loading analytics data', 'danger')
         return redirect(url_for('admin_dashboard'))
+
+@app.route('/unlink_google_fit', methods=['POST'])
+@login_required
+def unlink_google_fit():
+    try:
+        # Remove Google Fit tokens and expiry from user
+        current_user.google_fit_token = None
+        current_user.google_refresh_token = None
+        current_user.google_token_expiry = None
+        db.session.commit()
+        log_activity(app, current_user.id, 'Google Fit Unlinked', 'User unlinked Google Fit account')
+        flash('Google Fit account unlinked successfully.', 'success')
+    except Exception as e:
+        app.logger.error(f"Error unlinking Google Fit: {str(e)}")
+        flash('An error occurred while unlinking Google Fit.', 'danger')
+    return redirect(url_for('dashboard'))
