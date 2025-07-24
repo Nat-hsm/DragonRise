@@ -433,37 +433,7 @@ document.getElementById('link-garmin-btn').onclick = function() {
 
 
 <!-- Add here -->
-<button type="button" class="btn btn-outline-info mb-2 w-100" id="get-garmin-weekly-btn">
-    Get Garmin Weekly
-</button>
-<div id="garmin-weekly-result" class="mb-2 text-center text-muted" style="font-size: 1.1em;"></div>
 
-<script>
-document.getElementById('get-garmin-weekly-btn').onclick = function() {
-    const resultDiv = document.getElementById('garmin-weekly-result');
-    resultDiv.textContent = "Fetching weekly data...";
-    fetch('/get_garmin_weekly')
-        .then(res => res.json())
-        .then(data => {
-            if (data.week) {
-                let html = "<strong>Garmin Weekly:</strong><br>";
-                html += "<table class='table table-sm table-bordered'><thead><tr><th>Date</th><th>Steps</th><th>Floors</th></tr></thead><tbody>";
-                data.week.forEach(day => {
-                    html += `<tr><td>${day.calendarDate}</td><td>${day.steps}</td><td>${day.floorsClimbed}</td></tr>`;
-                });
-                html += "</tbody></table>";
-                resultDiv.innerHTML = html;
-            } else if (data.error) {
-                resultDiv.textContent = "Error: " + data.error;
-            } else {
-                resultDiv.textContent = "No data received.";
-            }
-        })
-        .catch(() => {
-            resultDiv.textContent = "Failed to fetch weekly data.";
-        });
-};
-</script>
 
 {% if current_user.google_fit_token and current_user.google_token_expiry and current_user.google_token_expiry > now %}
     <form action="{{ url_for('unlink_google_fit') }}" method="post" style="display:inline;">

@@ -388,6 +388,15 @@ def logout():
     # Store the current user's identity before logging out
     user_id = current_user.id if current_user.is_authenticated else None
     
+# Remove Google Fit tokens on logout
+    current_user.google_fit_token = None
+    current_user.google_refresh_token = None
+    current_user.google_token_expiry = None
+    db.session.commit()
+
+    # Store the current user's identity before logging out
+    user_id = current_user.id if current_user.is_authenticated else None
+
     # Standard Flask-Login logout
     logout_user()
     
@@ -1529,7 +1538,7 @@ def google_fit_callback():
         
         # Log success
         log_activity(app, current_user.id, 'Google Fit Connected', 'Google Fit account connected successfully')
-        flash('Google Fit connected successfully! Your steps will be synced automatically.', 'success')
+        flash('Google Fit connected successfully!', 'success')
         
         # Perform initial sync
         from background_tasks import sync_google_fit_for_user
@@ -1758,99 +1767,6 @@ def get_garmin_steps():
     except Exception as e:
         app.logger.error(f"Garmin fetch error: {e}")
         return jsonify({"error": "An error occurred while fetching Garmin data"}), 500
-
-@app.route('/get_garmin_weekly')
-@login_required
-def get_garmin_weekly():
-    """Get weekly data from Garmin Connect for the past 7 days"""
-    try:
-        access_token = session.get('garmin_access_token')
-        if not access_token:
-            app.logger.warning("Garmin not linked for user trying to get weekly data")
-            return jsonify({"error": "Garmin not linked"}), 401
-
-        now = datetime.utcnow()
-        week = []
-        headers = {"Authorization": f"Bearer {access_token}"}
-
-        for i in range(6, -1, -1):  # 6 days ago to today
-            day = now - timedelta(days=i)
-            start_of_day = datetime(day.year, day.month, day.day)
-            end_of_day = start_of_day + timedelta(days=1)
-            start_time_seconds = int(start_of_day.timestamp())
-            end_time_seconds = int(end_of_day.timestamp())
-
-            url = (
-                f'https://apis.garmin.com/wellness-api/rest/dailies'
-                f'?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
-            )
-
-            try:
-                r = requests.get(url, headers=headers, timeout=10)
-                
-                if r.status_code == 401:
-                    app.logger.warning("Garmin access token expired or invalid")
-                    return jsonify({"error": "Authentication expired. Please reconnect your Garmin account."}), 401
-                elif r.status_code != 200:
-                    app.logger.error(f"Garmin API error for {start_of_day.strftime('%Y-%m-%d')}: {r.status_code}")
-                    week.append({
-                        "calendarDate": start_of_day.strftime('%Y-%m-%d'),
-                        "steps": 0,
-                        "floorsClimbed": 0,
-                        "error": f"Failed to fetch data"
-                    })
-                    continue
-                
-                data = r.json()
-                if isinstance(data, list) and data:
-                    day_data = data[0]
-                    week.append({
-                        "calendarDate": day_data.get("calendarDate", start_of_day.strftime('%Y-%m-%d')),
-                        "steps": day_data.get("steps", 0),
-                        "floorsClimbed": day_data.get("floorsClimbed", 0)
-                    })
-                else:
-                    week.append({
-                        "calendarDate": start_of_day.strftime('%Y-%m-%d'),
-                        "steps": 0,
-                        "floorsClimbed": 0,
-                        "error": "No data available for this day"
-                    })
-            except requests.exceptions.Timeout:
-                app.logger.error(f"Timeout while fetching Garmin data for {start_of_day.strftime('%Y-%m-%d')}")
-                week.append({
-                    "calendarDate": start_of_day.strftime('%Y-%m-%d'),
-                    "steps": 0,
-                    "floorsClimbed": 0,
-                    "error": "Request timed out"
-                })
-            except requests.exceptions.ConnectionError:
-                app.logger.error(f"Connection error while fetching Garmin data for {start_of_day.strftime('%Y-%m-%d')}")
-                week.append({
-                    "calendarDate": start_of_day.strftime('%Y-%m-%d'),
-                    "steps": 0,
-                    "floorsClimbed": 0,
-                    "error": "Connection failed"
-                })
-            except Exception as e:
-                app.logger.error(f"Error fetching Garmin data for {start_of_day.strftime('%Y-%m-%d')}: {str(e)}")
-                week.append({
-                    "calendarDate": start_of_day.strftime('%Y-%m-%d'),
-                    "steps": 0,
-                    "floorsClimbed": 0,
-                    "error": "An unexpected error occurred"
-                })
-        
-        # Sort by date
-        week.sort(key=lambda x: x["calendarDate"])
-        
-        # Log successful retrieval
-        log_activity(app, current_user.id, 'Garmin Weekly Data Fetched', f'Retrieved weekly data ({len(week)} days)')
-        return jsonify({"week": week})
-    
-    except Exception as e:
-        app.logger.error(f"Garmin weekly fetch error: {str(e)}")
-        return jsonify({"error": "An error occurred while fetching Garmin weekly data"}), 500
 
 @app.route('/analytics-dashboard')
 @login_required
