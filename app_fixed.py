@@ -64,7 +64,8 @@ except Exception as e:
     # Continue anyway to allow app initialization, but functionality will be limited
 
 # Import models AFTER extensions are initialized
-from models import User, House, ClimbLog, StandingLog, StepLog, Achievement, init_houses, get_leaderboard, get_house_rankings, get_user_stats, init_admin
+from models import User, House, ClimbLog, StandingLog, StepLog, Achievement, init_houses, init_admin, get_leaderboard, get_house_rankings, get_user_stats, init_peak_hours
+
 @app.route('/')
 def index():
     houses = House.query.order_by(House.total_points.desc()).all()
@@ -155,6 +156,7 @@ def logout():
     logout_user()
     flash('You have been logged out.', 'info')
     return redirect(url_for('index'))
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -225,6 +227,7 @@ def admin_dashboard():
                          peak_hours=peak_hours,
                          total_stats=total_stats,
                          activity_logs=activity_logs)
+
 @app.route('/admin-dashboard/delete-user', methods=['POST'])
 @login_required
 @admin_required
@@ -317,6 +320,7 @@ def reset_house():
         flash('An error occurred while resetting the house', 'danger')
     
     return redirect(url_for('admin_dashboard'))
+
 @app.route('/admin-dashboard/add-peak-hour', methods=['POST'])
 @login_required
 @admin_required
@@ -433,6 +437,7 @@ def toggle_peak_hour():
         flash('An error occurred while updating the peak hour status', 'danger')
     
     return redirect(url_for('admin_dashboard'))
+
 @app.route('/analytics-dashboard')
 @login_required
 def analytics_dashboard():
@@ -458,23 +463,18 @@ def analytics_dashboard():
             app.logger.warning("No houses found for analytics dashboard")
             return render_template('analytics_dashboard.html',
                                 houses=[],
-                                house_names=json.dumps([]),
-                                house_colors=json.dumps([]),
-                                climbing_data=json.dumps({'flights': [], 'points': []}),
-                                standing_data=json.dumps({'minutes': [], 'points': []}),
-                                steps_data=json.dumps({'steps': [], 'points': []}),
-                                combined_data=json.dumps({'climbing_points': [], 'standing_points': [], 'steps_points': [], 'total_points': []}),
-                                now=int(datetime.now().timestamp()))
+                                house_names=[],
+                                house_colors_list=[])
         
-        # Prepare data for charts
+        # Extract house names for labels
         house_names = [house.name for house in houses]
         
-        # Define colors for each house - using the CSS variables
+        # Define colors for each house
         house_colors = {
-            'Black': 'rgba(51, 51, 51, 0.8)',
-            'Blue': 'rgba(0, 102, 204, 0.8)',
-            'Green': 'rgba(0, 153, 51, 0.8)',
-            'White': 'rgba(248, 249, 250, 0.8)',
+            'Black': 'rgba(0, 0, 0, 0.8)',
+            'Blue': 'rgba(0, 0, 255, 0.8)',
+            'Green': 'rgba(0, 128, 0, 0.8)',
+            'White': 'rgba(220, 220, 220, 0.8)',
             'Gold': 'rgba(255, 204, 0, 0.8)',
             'Purple': 'rgba(102, 0, 153, 0.8)'
         }
@@ -533,24 +533,12 @@ def analytics_dashboard():
         now = int(datetime.now().timestamp())
         
         # Log the data we're about to send for debugging
-        app.logger.debug("Chart data: houses=%s, colors=%s, climbing=%s, standing=%s, steps=%s, combined=%s",
-                       house_names, house_colors_list, climbing_data, standing_data, steps_data, combined_data)
+        app.logger.debug("Rendering analytics dashboard with data: house_names=%s, climbing_data=%s, standing_data=%s, steps_data=%s, combined_data=%s", 
+                       house_names, climbing_data, standing_data, steps_data, combined_data)
         
-        # Add explicit debug before rendering
-        debug_data = {
-            'house_names_type': type(house_names).__name__,
-            'house_names': house_names,
-            'house_colors_type': type(house_colors_list).__name__,
-            'house_colors': house_colors_list,
-            'climbing_data_type': type(climbing_data).__name__,
-            'climbing_data': climbing_data
-        }
-        app.logger.info(f"Debug data: {debug_data}")
-        
-        # Use tojson filter in the template instead of json.dumps
         return render_template('analytics_dashboard.html',
                             houses=houses,
-                            house_names=json.dumps(house_names),  # Convert to JSON string
+                            house_names=json.dumps(house_names),
                             house_colors=json.dumps(house_colors_list),
                             climbing_data=json.dumps(climbing_data),
                             standing_data=json.dumps(standing_data),
@@ -606,6 +594,7 @@ def log_climb():
         db.session.rollback()
 
     return redirect(url_for('dashboard'))
+
 @app.route('/log_standing', methods=['POST'])
 @login_required
 def log_standing():
@@ -706,6 +695,7 @@ def log_steps():
         db.session.rollback()
 
     return redirect(url_for('steps_dashboard'))
+
 @app.route('/upload-screenshot', methods=['POST'])
 @login_required
 @limiter.limit("1000 per minute")  # Changed from 10 to 1000 per minute (or added if missing)
@@ -732,6 +722,15 @@ def upload_screenshot():
             timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
             unique_filename = f"{current_user.id}_{timestamp}_{filename}"
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            
+            # Check file size before saving (limit to 5MB)
+            file.seek(0, os.SEEK_END)
+            file_size = file.tell()
+            if file_size > 5 * 1024 * 1024:  # 5MB
+                flash('File size exceeds the 5MB limit', 'danger')
+                return redirect(url_for('dashboard'))
+                
+            file.seek(0)  # Reset file pointer to beginning
             
             # Save file first
             file.save(filepath)
@@ -787,6 +786,7 @@ def upload_screenshot():
         flash('An error occurred while processing your screenshot', 'danger')
     
     return redirect(url_for('dashboard'))
+
 @app.route('/upload-standing-screenshot', methods=['POST'])
 @login_required
 def upload_standing_screenshot():
@@ -860,6 +860,7 @@ def upload_standing_screenshot():
         flash('An error occurred while processing your screenshot', 'danger')
     
     return redirect(url_for('standing_dashboard'))
+
 @app.route('/upload-steps-screenshot', methods=['POST'])
 @login_required
 def upload_steps_screenshot():
@@ -940,6 +941,7 @@ def upload_steps_screenshot():
         flash('An error occurred while processing your screenshot', 'danger')
     
     return redirect(url_for('steps_dashboard'))
+
 @app.route('/api/house_points')
 @require_api_key
 def house_points():
@@ -958,21 +960,10 @@ def load_user(user_id):
 def health_check():
     try:
         # Check database connection
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        return jsonify({
-            "status": "healthy",
-            "database": "connected",
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }), 200
+        db.session.execute(text("SELECT 1"))
+        return jsonify({"status": "healthy", "message": "DragonRise API is running normally"})
     except Exception as e:
-        app.logger.error(f"Health check failed: {e}")
-        return jsonify({
-            "status": "unhealthy",
-            "database": "disconnected",
-            "error": str(e),
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }), 500
+        return jsonify({"status": "unhealthy", "error": str(e)}), 500
 
 @app.errorhandler(OperationalError)
 def handle_db_connection_error(e):
@@ -1031,6 +1022,51 @@ def allowed_file(filename):
     """Check if the file extension is allowed"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg'})
+
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    # Update CSP to allow S3 bucket for static resources
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://dragonrise-static.s3.us-east-1.amazonaws.com; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://dragonrise-static.s3.us-east-1.amazonaws.com; "
+        "font-src 'self' https://cdn.jsdelivr.net https://dragonrise-static.s3.us-east-1.amazonaws.com; "
+        "img-src 'self' data: https://dragonrise-static.s3.us-east-1.amazonaws.com; "
+        "connect-src 'self' https://dragonrise-static.s3.us-east-1.amazonaws.com; "
+        "object-src 'none';"
+    )
+    response.headers['Content-Security-Policy'] = csp
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
+
+# Add these new routes that were missing, causing the 500 error
+@app.route('/signup')
+def signup():
+    """Route for signup - redirects to register page"""
+    return redirect(url_for('register'))
+
+@app.route('/auth/callback')
+def auth_callback():
+    """Mock callback route for compatibility"""
+    flash('Authentication is not available in this version.', 'warning')
+    return redirect(url_for('login'))
+
+# Add the S3 static file configuration
+app.config['STATIC_URL'] = 'https://dragonrise-static.s3.us-east-1.amazonaws.com/static/'
+
+# Create a custom template context processor to override url_for('static', ...)
+@app.context_processor
+def override_url_for():
+    def url_for(endpoint, **kwargs):
+        if endpoint == 'static':
+            return app.config['STATIC_URL'] + kwargs.get('filename', '')
+        # Use the original url_for for all other endpoints
+        from flask import url_for as flask_url_for
+        return flask_url_for(endpoint, **kwargs)
+    return dict(url_for=url_for)
 
 if __name__ == '__main__':
     # Initialize the admin user on startup

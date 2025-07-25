@@ -2070,3 +2070,17 @@ def analytics_dashboard():
         app.logger.error(f"Error in analytics dashboard: {str(e)}")
         flash('An error occurred while loading analytics data', 'danger')
         return redirect(url_for('admin_dashboard'))
+
+# Add this configuration to your Flask app
+app.config['STATIC_URL'] = 'https://dragonrise-static.s3.us-east-1.amazonaws.com/static/'
+
+# Create a custom template context processor to override url_for('static', ...)
+@app.context_processor
+def override_url_for():
+    def url_for(endpoint, **kwargs):
+        if endpoint == 'static':
+            return app.config['STATIC_URL'] + kwargs.get('filename', '')
+        # Use the original url_for for all other endpoints
+        from flask import url_for as flask_url_for
+        return flask_url_for(endpoint, **kwargs)
+    return dict(url_for=url_for)
