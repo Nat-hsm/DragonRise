@@ -464,7 +464,7 @@
                 </div>
                 
                 <!-- Event Activation Confirmation Modal -->
-                <div class="modal fade" id="activateEventModal" tabindex="-1" aria-labelledby="activateEventModalLabel" aria-hidden="true">
+                <div class="modal fade" id="activateEventModal" tabindex="-1" aria-labelledby="activateEventModalLabel" aria-hidden="true" data-bs-backdrop="true" data-bs-keyboard="true">
                     <div class="modal-dialog">
                         <div class="modal-content">
                             <div class="modal-header">
@@ -481,7 +481,7 @@
                                 </form>
                             </div>
                             <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="hideModal()">Cancel</button>
                                 <button type="button" class="btn btn-primary" id="confirm-activate-event">Yes, Activate Event</button>
                             </div>
                         </div>
@@ -791,3 +791,83 @@
     </div>
 </div>
 {% endfor %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Admin dashboard script loaded');
+    
+    // Function to properly hide modal and backdrop
+    function hideModal() {
+        const modal = bootstrap.Modal.getInstance(document.getElementById('activateEventModal'));
+        if (modal) {
+            modal.hide();
+        }
+        // Force remove any lingering backdrops
+        setTimeout(() => {
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => backdrop.remove());
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+        }, 300);
+    }
+    
+    // Make hideModal function globally available
+    window.hideModal = hideModal;
+    
+    // Handle toggle event buttons
+    const toggleEventButtons = document.querySelectorAll('.toggle-event-btn');
+    
+    toggleEventButtons.forEach(button => {
+        button.onclick = function(e) {
+            console.log('Button clicked via direct onclick handler');
+            e.preventDefault();
+            const form = this.closest('form');
+            const eventId = form.querySelector('input[name="event_id"]').value;
+            
+            if (this.textContent.trim() === 'Activate') {
+                document.getElementById('event_id_input').value = eventId;
+                const modalElement = document.getElementById('activateEventModal');
+                const modal = new bootstrap.Modal(modalElement, {
+                    backdrop: 'static',
+                    keyboard: true
+                });
+                modal.show();
+                
+                // Add event listener for when modal is hidden
+                modalElement.addEventListener('hidden.bs.modal', function () {
+                    // Force cleanup
+                    const backdrops = document.querySelectorAll('.modal-backdrop');
+                    backdrops.forEach(backdrop => backdrop.remove());
+                    document.body.classList.remove('modal-open');
+                    document.body.style.overflow = '';
+                    document.body.style.paddingRight = '';
+                }, { once: true });
+                
+            } else {
+                form.submit();
+            }
+        };
+    });
+    
+    // Handle confirmation button
+    const confirmButton = document.getElementById('confirm-activate-event');
+    if (confirmButton) {
+        confirmButton.addEventListener('click', function() {
+            console.log('Activation confirmed - submitting form');
+            // Hide modal first
+            hideModal();
+            // Submit form after a short delay
+            setTimeout(() => {
+                document.getElementById('event-toggle-form').submit();
+            }, 100);
+        });
+    }
+    
+    // Ensure Bootstrap is available
+    if (typeof bootstrap === 'undefined') {
+        console.error('Bootstrap is not loaded!');
+    } else {
+        console.log('Bootstrap is loaded correctly');
+    }
+});
+</script>
