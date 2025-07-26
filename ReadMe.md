@@ -72,6 +72,41 @@ A secure web application for tracking stair climbing and standing activities.
 - CSRF protection is enabled for all forms
 - Rate limiting is applied to sensitive endpoints
 
+# DragonRise Deployment - July 2025 Update
+
+## Recent Changes
+
+The deployment process has been significantly improved to address previous issues:
+
+1. **Static Files**: Fixed issues with static file serving by implementing a dual-tier approach:
+   - Local static files are served first
+   - S3 bucket serves as fallback
+   - CSP headers properly configured to allow all resources
+
+2. **Permissions**: Proper permissions set for all directories and files:
+   - 755 for directories
+   - 644 for static files
+   - 700 for certificates
+
+3. **Gunicorn Configuration**: Optimized for stability:
+   - Reduced worker count to 2
+   - Increased timeouts to 60 seconds
+   - Implemented max_requests settings to prevent memory leaks
+
+4. **Nginx Configuration**: Enhanced for better performance:
+   - Proxy timeouts increased to 60 seconds
+   - CORS headers properly configured
+   - Caching enabled for static files
+
+## Deployment Instructions
+
+The entire deployment process has been consolidated into a single script:
+
+```bash
+# Run the deployment script
+./deploy.sh
+```
+
 ## License
 
 [MIT License](LICENSE)
