@@ -1960,7 +1960,7 @@ def analytics_dashboard():
             
             date_filter_steps = and_(
                 StepLog.timestamp >= start_range,
-                StepLog.timestamp < end_range
+                               StepLog.timestamp < end_range
             )
             
             # Query activity counts
@@ -2010,3 +2010,431 @@ def unlink_google_fit():
         app.logger.error(f"Error unlinking Google Fit: {str(e)}")
         flash('An error occurred while unlinking Google Fit.', 'danger')
     return redirect(url_for('dashboard'))
+
+@app.route('/admin-dashboard/update-user-points', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def update_user_points():
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        log_access_attempt(False, "Update User Points", "Non-admin access attempt")
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+        
+    try:
+        user_id = request.form.get('user_id')
+        new_points = request.form.get('new_points')
+        
+        if not user_id or new_points is None:
+            flash('User ID and points are required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Validate inputs
+        try:
+            user_id = int(user_id)
+            new_points = int(new_points)
+        except ValueError:
+            flash('Invalid user ID or points value', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        if new_points < 0:
+            flash('Points cannot be negative', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Find the user
+        user = User.query.get_or_404(user_id)
+        
+        # Don't allow updating the admin user
+        if user.is_admin:
+            log_access_attempt(False, "Update User Points", f"Attempted to update admin user points: {user.username}")
+            flash('Cannot update admin user points', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Calculate point difference
+        point_difference = new_points - user.total_points
+        
+        # Update user points
+        user.total_points = new_points
+        
+        # Update house points
+        house = House.query.filter_by(name=user.house).first()
+        if house:
+            house.total_points += point_difference
+        
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'User Points Updated', 
+                    f'User {user.username} points updated from {user.total_points - point_difference} to {new_points} (difference: {point_difference:+d})')
+        flash(f'User points updated successfully', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating user points: {str(e)}")
+        flash('An error occurred while updating user points', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/update-house-points', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def update_house_points():
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        log_access_attempt(False, "Update House Points", "Non-admin access attempt")
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+        
+    try:
+        house_id = request.form.get('house_id')
+        new_points = request.form.get('new_points')
+        
+        if not house_id or new_points is None:
+            flash('House ID and points are required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Validate inputs
+        try:
+            house_id = int(house_id)
+            new_points = int(new_points)
+        except ValueError:
+            flash('Invalid house ID or points value', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        if new_points < 0:
+            flash('Points cannot be negative', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Find the house
+        house = House.query.get_or_404(house_id)
+        
+        # Calculate point difference
+        point_difference = new_points - house.total_points
+        
+        # Update house points
+        house.total_points = new_points
+        
+        # Update points for all users in the house
+        users_in_house = User.query.filter_by(house=house.name).all()
+        for user in users_in_house:
+            user.total_points += point_difference
+        
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'House Points Updated', 
+                    f'House {house.name} points updated from {house.total_points - point_difference} to {new_points} (difference: {point_difference:+d})')
+        flash(f'House points updated successfully', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating house points: {str(e)}")
+        flash('An error occurred while updating house points', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/reset-house', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def reset_house():
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        log_access_attempt(False, "Reset House", "Non-admin access attempt")
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+        
+    try:
+        house_id = request.form.get('house_id')
+        if not house_id:
+            flash('House ID is required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Validate house_id is an integer
+        try:
+            house_id = int(house_id)
+        except ValueError:
+            flash('Invalid house ID', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Reset house statistics
+        house = House.query.get_or_404(house_id)
+        house_name = house.name
+        old_points = house.total_points
+        
+        house.total_points = 0
+        house.total_flights = 0
+        house.total_standing_time = 0
+        if hasattr(house, 'total_steps'):
+            house.total_steps = 0
+        
+        # Reset points for all users in this house
+        users_in_house = User.query.filter_by(house=house.name).all()
+        for user in users_in_house:
+            if not user.is_admin:  # Don't reset admin user stats
+                user.total_points = 0
+                user.total_flights = 0
+                user.total_standing_time = 0
+                if hasattr(user, 'total_steps'):
+                    user.total_steps = 0
+        
+        # Commit changes
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'House Reset', f'House {house_name} points reset from {old_points} to 0')
+        flash(f'House {house_name} has been reset. All points and statistics are now zero.', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error resetting house: {str(e)}")
+        flash('An error occurred while resetting the house', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/reset-event-house', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def reset_event_house():
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        log_access_attempt(False, "Reset Event House", "Non-admin access attempt")
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+        
+    try:
+        house_id = request.form.get('house_id')
+        if not house_id:
+            flash('House ID is required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Validate house_id is an integer
+        try:
+            house_id = int(house_id)
+        except ValueError:
+            flash('Invalid house ID', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Check if there's an active event
+        active_event = get_active_event()
+        if not active_event:
+            flash('No active event found. Use all-time reset instead.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Find the house
+        house = House.query.get_or_404(house_id)
+        house_name = house.name
+        
+        # Get current event points for logging
+        current_event_points = get_event_points(house_name=house_name)
+        old_points = current_event_points['total_points'] if current_event_points else 0
+        
+        if old_points == 0:
+            flash(f'House {house_name} already has 0 event points', 'info')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Find a user from this house to create the adjustment log entry
+        house_user = User.query.filter_by(house=house_name, is_admin=False).first()
+        
+        if not house_user:
+            flash(f'No users found in {house_name} house to create adjustment log', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Create a negative adjustment log entry to zero out the house points
+        adjustment_log = ClimbLog(
+            user_id=house_user.id,
+            flights=0,  # No actual flights
+            points=-old_points,  # Negative points to zero out the total
+            notes=f"Admin reset: {house_name} event points reset from {old_points} to 0"
+        )
+        
+        db.session.add(adjustment_log)
+        db.session.commit()
+        
+        # Log the activity
+        log_activity(app, current_user.id, 'Event House Reset', 
+                    f'House {house_name} event points reset from {old_points} to 0 for event: {active_event.name}')
+        
+        flash(f'House {house_name} event points have been reset to 0.', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error resetting event house points: {str(e)}")
+        flash('An error occurred while resetting event house points', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/update-event-user-points', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def update_event_user_points():
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        log_access_attempt(False, "Update Event User Points", "Non-admin access attempt")
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+        
+    try:
+        user_id = request.form.get('user_id')
+        new_points = request.form.get('new_points')
+        
+        if not user_id or new_points is None:
+            flash('User ID and points are required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Validate inputs
+        try:
+            user_id = int(user_id)
+            new_points = int(new_points)
+        except ValueError:
+            flash('Invalid user ID or points value', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        if new_points < 0:
+            flash('Points cannot be negative', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Check if there's an active event
+        active_event = get_active_event()
+        if not active_event:
+            flash('No active event found. Use all-time points update instead.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Find the user
+        user = User.query.get_or_404(user_id)
+        
+        # Don't allow updating the admin user
+        if user.is_admin:
+            log_access_attempt(False, "Update Event User Points", f"Attempted to update admin user points: {user.username}")
+            flash('Cannot update admin user points', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Get current event points
+        current_event_points = get_event_points(user_id=user_id)
+        old_points = current_event_points['total_points'] if current_event_points else 0
+        
+        # Calculate difference
+        point_difference = new_points - old_points
+        
+        # Create a log entry to adjust event points
+        # This creates an activity log during the event period to achieve the desired points
+        username = user.username
+        
+        if point_difference != 0:
+            # Create an adjustment log entry
+            adjustment_log = ClimbLog(
+                user_id=user_id,
+                flights=0,  # No actual flights
+                points=point_difference,  # The point adjustment needed
+                notes=f"Admin adjustment: Event points changed from {old_points} to {new_points}"
+            )
+            
+            db.session.add(adjustment_log)
+            db.session.commit()
+            
+            # Log the activity
+            log_activity(app, current_user.id, 'Event User Points Updated', 
+                        f'User {username} event points updated from {old_points} to {new_points} (difference: {point_difference:+d})')
+            flash(f'User {username} event points updated from {old_points} to {new_points}', 'success')
+        else:
+            flash(f'User {username} event points are already {new_points}', 'info')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating event user points: {str(e)}")
+        flash('An error occurred while updating event user points', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin-dashboard/update-event-house-points', methods=['POST'])
+@login_required
+@admin_required
+@limiter.limit("200 per minute")
+@verify_content_type('application/x-www-form-urlencoded')
+def update_event_house_points():
+    # Verify admin status again as an extra precaution
+    if not current_user.is_admin:
+        log_access_attempt(False, "Update Event House Points", "Non-admin access attempt")
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+        
+    try:
+        house_id = request.form.get('house_id')
+        new_points = request.form.get('new_points')
+        
+        if not house_id or new_points is None:
+            flash('House ID and points are required', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Validate inputs
+        try:
+            house_id = int(house_id)
+            new_points = int(new_points)
+        except ValueError:
+            flash('Invalid house ID or points value', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        if new_points < 0:
+            flash('Points cannot be negative', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Check if there's an active event
+        active_event = get_active_event()
+        if not active_event:
+            flash('No active event found. Use all-time points update instead.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+            
+        # Find the house
+        house = House.query.get_or_404(house_id)
+        
+        # Get current event points
+        current_event_points = get_event_points(house_name=house.name)
+        old_points = current_event_points['total_points'] if current_event_points else 0
+        
+        # Calculate difference
+        point_difference = new_points - old_points
+        
+        # Store house name for logging
+        house_name = house.name
+        
+        if point_difference != 0:
+            # Find a user from this house to create the adjustment log entry
+            house_user = User.query.filter_by(house=house_name, is_admin=False).first()
+            
+            if not house_user:
+                flash(f'No users found in {house_name} house to create adjustment log', 'danger')
+                return redirect(url_for('admin_dashboard'))
+            
+            # Create an adjustment log entry
+            adjustment_log = ClimbLog(
+                user_id=house_user.id,
+                flights=0,  # No actual flights
+                points=point_difference,  # The point adjustment needed
+                notes=f"Admin house adjustment: {house_name} event points changed from {old_points} to {new_points}"
+            )
+            
+            db.session.add(adjustment_log)
+            db.session.commit()
+            
+            # Log the activity
+            log_activity(app, current_user.id, 'Event House Points Updated', 
+                        f'House {house_name} event points updated from {old_points} to {new_points} (difference: {point_difference:+d})')
+            flash(f'House {house_name} event points updated from {old_points} to {new_points}', 'success')
+        else:
+            flash(f'House {house_name} event points are already {new_points}', 'info')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating event house points: {str(e)}")
+        flash('An error occurred while updating event house points', 'danger')
+    
+    return redirect(url_for('admin_dashboard'))
