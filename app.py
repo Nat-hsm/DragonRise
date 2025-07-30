@@ -493,68 +493,98 @@ def admin_dashboard():
 @app.route('/admin-dashboard/delete-user', methods=['POST'])
 @login_required
 @admin_required
-@limiter.limit("200 per minute")  # Add rate limiting here instead
+@limiter.limit("200 per minute")
 @verify_content_type('application/x-www-form-urlencoded')
 def delete_user():
-    # Verify admin status again as an extra precaution
-    if not current_user.is_admin:
-        log_access_attempt(False, "Delete User", "Non-admin access attempt")
-        flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('admin_dashboard'))
-        
+    """Delete a user from the database and optionally from Cognito"""
     try:
         user_id = request.form.get('user_id')
-        if not user_id:
-            flash('User ID is required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Validate user_id is an integer
-        try:
-            user_id = int(user_id)
-        except ValueError:
-            flash('Invalid user ID', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Find the user
-        user = User.query.get_or_404(user_id)
+        delete_from_cognito = request.form.get('delete_from_cognito', 'false').lower() == 'true'
         
-        # Don't allow deleting the admin user
+        if not user_id:
+            flash('No user specified', 'danger')
+            return redirect(url_for('user_management'))
+            
+        user = User.query.get(user_id)
+        if not user:
+            flash('User not found', 'danger')
+            return redirect(url_for('user_management'))
+            
         if user.is_admin:
             log_access_attempt(False, "Delete User", f"Attempted to delete admin user: {user.username}")
             flash('Cannot delete admin user', 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('user_management'))
+            
+        username = user.username
+        email = user.email
+        house_name = user.house
         
-        # Get user's house to update member count
-        house = House.query.filter_by(name=user.house).first()
+        # Delete from Cognito if requested
+        if delete_from_cognito:
+            try:
+                # Try to find user in Cognito by username first, then by email if not found
+                cognito_username = None
+                
+                # Search by username
+                username_filter = f'username = "{username}"'
+                cognito_users = cognito_sync.client.list_users(
+                    UserPoolId=cognito_sync.user_pool_id,
+                    Filter=username_filter
+                )
+                
+                if cognito_users.get('Users'):
+                    cognito_username = cognito_users['Users'][0]['Username']
+                elif email:
+                    # If not found by username, try by email
+                    email_filter = f'email = "{email}"'
+                    cognito_users = cognito_sync.client.list_users(
+                        UserPoolId=cognito_sync.user_pool_id,
+                        Filter=email_filter
+                    )
+                    if cognito_users.get('Users'):
+                        cognito_username = cognito_users['Users'][0]['Username']
+                
+                # Delete user if found
+                if cognito_username:
+                    cognito_sync.client.admin_delete_user(
+                        UserPoolId=cognito_sync.user_pool_id,
+                        Username=cognito_username
+                    )
+                    flash(f'User {username} deleted from Cognito', 'success')
+                else:
+                    flash(f'User {username} not found in Cognito', 'warning')
+            except Exception as e:
+                app.logger.error(f"Error deleting user from Cognito: {str(e)}")
+                flash(f'Failed to delete user from Cognito: {str(e)}', 'warning')
+        
+        # Update house member count and total points
+        house = House.query.filter_by(name=house_name).first()
         if house:
-            house.remove_member()
+            # Decrement member count
+            if house.member_count > 0:
+                house.member_count -= 1
             
             # Subtract user's points from house total
             house.total_points -= user.total_points
             house.total_flights -= user.total_flights
             if hasattr(house, 'total_standing_time'):
                 house.total_standing_time -= user.total_standing_time
-        
-        # Delete user's logs
-        ClimbLog.query.filter_by(user_id=user_id).delete()
-        StandingLog.query.filter_by(user_id=user_id).delete()
-        
-        # Delete user
-        username = user.username  # Store for logging
+            if hasattr(house, 'total_steps') and hasattr(user, 'total_steps'):
+                house.total_steps -= user.total_steps
+            
+        # Delete the user from our database
         db.session.delete(user)
         db.session.commit()
         
-        # Log the activity
-        log_access_attempt(True, "Delete User", f"User {username} was deleted")
-        log_activity(app, current_user.id, 'User Deleted', f'User {username} was deleted')
+        log_activity(app, current_user.id, 'User Deleted', f'Deleted user {username}')
         flash(f'User {username} has been deleted', 'success')
         
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"Error deleting user: {str(e)}")
         flash('An error occurred while deleting the user', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
+        
+    return redirect(url_for('user_management'))
 
 @app.route('/admin-dashboard/add-event', methods=['POST'])
 @login_required
@@ -992,20 +1022,42 @@ def upload_screenshot():
             
             if result.get('success'):
                 flights = result.get('flights')
+                activity_date_str = result.get('date')  # Get date from the image
+                
+                # Parse the date from the image if available, otherwise use current date
+                if activity_date_str:
+                    try:
+                        # Try to parse the date string in YYYY-MM-DD format
+                        activity_date = datetime.strptime(activity_date_str, '%Y-%m-%d')
+                        activity_date = activity_date.replace(tzinfo=timezone.utc)
+                        
+                        # Validate that the backdated timestamp is allowed
+                        is_valid, message = validate_backdated_timestamp(activity_date)
+                        if not is_valid:
+                            flash(message, 'danger')
+                            return redirect(url_for('dashboard'))
+                            
+                        # Set time to start of day
+                        activity_date = activity_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                    except ValueError:
+                        # If date parsing fails, default to today
+                        activity_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                else:
+                    # Default to today if no date in image
+                    activity_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                # Calculate tomorrow for the query
+                tomorrow = activity_date + timedelta(days=1)
                 
                 # Validate flights is within reasonable range
                 if flights <= 0 or flights > 1000:
                     flash('Invalid number of flights detected in the screenshot', 'danger')
                     return redirect(url_for('dashboard'))
                     
-                # Get today's date
-                today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-                tomorrow = today + timedelta(days=1)
-                
-                # Find the most recent climb log for today
+                # Find the most recent climb log for the activity date
                 latest_log = ClimbLog.query.filter(
                     ClimbLog.user_id == current_user.id,
-                    ClimbLog.timestamp >= today,
+                    ClimbLog.timestamp >= activity_date,
                     ClimbLog.timestamp < tomorrow
                 ).order_by(ClimbLog.flights.desc()).first()
                 
@@ -1013,17 +1065,19 @@ def upload_screenshot():
                 existing_flights = latest_log.flights if latest_log else 0
                 
                 if flights <= existing_flights:
-                    flash('No new flights detected. Your current recorded flights for today is already higher.', 'warning')
+                    flash(f'No new flights detected. Your recorded flights for {activity_date.strftime("%Y-%m-%d")} is already higher.', 'warning')
                     return redirect(url_for('dashboard'))
                 
                 incremental_flights = flights - existing_flights
                 
                 # Check if it's peak hour for multiplier
+                # For backdated activities, we use the current multiplier
                 multiplier = get_points_multiplier()
                 points = incremental_flights * 10 * multiplier
                 
-                # Log the climb
+                # Log the climb with the activity date
                 log = ClimbLog(user_id=current_user.id, flights=flights, points=points)
+                log.timestamp = activity_date  # Set the backdated timestamp
                 
                 # Update user stats with only the incremental flights
                 current_user.total_flights += incremental_flights
@@ -1040,13 +1094,18 @@ def upload_screenshot():
                 
                 # Add multiplier info to the message if applicable
                 multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                log_activity(app, current_user.id, 'Screenshot Climb Logged', f'{incremental_flights} new flights{multiplier_text}')
-                flash(f'Successfully processed screenshot! Added {points} points for {incremental_flights} new flights.{multiplier_text}', 'success')
+                log_activity(app, current_user.id, 'Screenshot Climb Logged', 
+                             f'{incremental_flights} new flights{multiplier_text} for {activity_date.strftime("%Y-%m-%d")}')
+                
+                date_info = ""
+                if activity_date.date() != datetime.now(timezone.utc).date():
+                    date_info = f" for {activity_date.strftime('%Y-%m-%d')}"
+                
+                flash(f'Successfully processed screenshot! Added {points} points for {incremental_flights} new flights{date_info}.{multiplier_text}', 'success')
             else:
                 flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
         else:
             flash('Invalid file type. Please upload a PNG or JPG image.', 'danger')
-            log_access_attempt(False, "File Upload", f"Invalid file type: {file.filename}")
     except Exception as e:
         app.logger.error(f'Screenshot upload error: {str(e)}')
         flash('An error occurred while processing your screenshot', 'danger')
@@ -1056,7 +1115,7 @@ def upload_screenshot():
 
 @app.route('/upload-standing-screenshot', methods=['POST'])
 @login_required
-@limiter.limit("1000 per minute")  # Added rate limiting
+@limiter.limit("1000 per minute")
 def upload_standing_screenshot():
     try:
         # Check if a file was uploaded
@@ -1070,6 +1129,15 @@ def upload_standing_screenshot():
         if file.filename == '':
             flash('No file selected', 'danger')
             return redirect(url_for('dashboard'))
+            
+        # Sanitize the filename
+        original_filename = file.filename
+        sanitized_filename = sanitize_filename(original_filename)
+        
+        if sanitized_filename != original_filename:
+            app.logger.warning(f"Filename sanitized: {original_filename} -> {sanitized_filename}")
+            
+        file.filename = sanitized_filename
             
         if file and allowed_file(file.filename):
             # Create uploads directory if it doesn't exist
@@ -1089,15 +1157,37 @@ def upload_standing_screenshot():
             
             if result.get('success'):
                 minutes = result.get('minutes', 0)
+                activity_date_str = result.get('date')  # Get date from the image
                 
-                # Get today's date
-                today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-                tomorrow = today + timedelta(days=1)
+                # Parse the date from the image if available, otherwise use current date
+                if activity_date_str:
+                    try:
+                        # Try to parse the date string in YYYY-MM-DD format
+                        activity_date = datetime.strptime(activity_date_str, '%Y-%m-%d')
+                        activity_date = activity_date.replace(tzinfo=timezone.utc)
+                        
+                        # Validate that the backdated timestamp is allowed
+                        is_valid, message = validate_backdated_timestamp(activity_date)
+                        if not is_valid:
+                            flash(message, 'danger')
+                            return redirect(url_for('dashboard'))
+                            
+                        # Set time to start of day
+                        activity_date = activity_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                    except ValueError:
+                        # If date parsing fails, default to today
+                        activity_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                else:
+                    # Default to today if no date in image
+                    activity_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
                 
-                # Find the most recent standing log for today
+                # Calculate tomorrow for the query
+                tomorrow = activity_date + timedelta(days=1)
+                
+                # Find the most recent standing log for the activity date
                 latest_log = StandingLog.query.filter(
                     StandingLog.user_id == current_user.id,
-                    StandingLog.timestamp >= today,
+                    StandingLog.timestamp >= activity_date,
                     StandingLog.timestamp < tomorrow
                 ).order_by(StandingLog.minutes.desc()).first()
                 
@@ -1105,7 +1195,7 @@ def upload_standing_screenshot():
                 existing_minutes = latest_log.minutes if latest_log else 0
                 
                 if minutes <= existing_minutes:
-                    flash('No new standing time detected. Your current recorded minutes for today is already higher.', 'warning')
+                    flash(f'No new standing time detected. Your recorded minutes for {activity_date.strftime("%Y-%m-%d")} is already higher.', 'warning')
                     return redirect(url_for('dashboard'))
                 
                 incremental_minutes = minutes - existing_minutes
@@ -1114,11 +1204,9 @@ def upload_standing_screenshot():
                 multiplier = get_points_multiplier()
                 points = incremental_minutes * multiplier
                 
-                # Set notes to None for screenshot uploads
-                notes = None
-                
-                # Log the standing time
-                log = StandingLog(user_id=current_user.id, minutes=minutes, points=points, notes=notes)
+                # Log the standing time with backdated timestamp
+                log = StandingLog(user_id=current_user.id, minutes=minutes, points=points, notes=None)
+                log.timestamp = activity_date  # Set the backdated timestamp
                 
                 # Update user stats with only the incremental minutes
                 current_user.total_standing_time += incremental_minutes
@@ -1136,8 +1224,15 @@ def upload_standing_screenshot():
                 
                 # Add multiplier info to the message if applicable
                 multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                log_activity(app, current_user.id, 'Screenshot Standing Logged', f'{incremental_minutes} new minutes{multiplier_text}')
-                flash(f'Successfully processed screenshot! Added {points} points for {incremental_minutes} new minutes of standing time.{multiplier_text}', 'success')
+                
+                date_info = ""
+                if activity_date.date() != datetime.now(timezone.utc).date():
+                    date_info = f" for {activity_date.strftime('%Y-%m-%d')}"
+                
+                log_activity(app, current_user.id, 'Screenshot Standing Logged', 
+                             f'{incremental_minutes} new minutes{multiplier_text}{date_info}')
+                
+                flash(f'Successfully processed screenshot! Added {points} points for {incremental_minutes} new minutes of standing time{date_info}.{multiplier_text}', 'success')
             else:
                 flash(f'Could not process screenshot: {result.get("error", "Unknown error")}', 'danger')
         else:
@@ -1183,16 +1278,38 @@ def upload_steps_screenshot():
             
             if result.get('success'):
                 steps = result.get('steps', 0)
+                activity_date_str = result.get('date')  # Get date from the image
                 
                 if hasattr(current_user, 'total_steps'):
-                    # Get today's date
-                    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-                    tomorrow = today + timedelta(days=1)
+                    # Parse the date from the image if available, otherwise use current date
+                    if activity_date_str:
+                        try:
+                            # Try to parse the date string in YYYY-MM-DD format
+                            activity_date = datetime.strptime(activity_date_str, '%Y-%m-%d')
+                            activity_date = activity_date.replace(tzinfo=timezone.utc)
+                            
+                            # Validate that the backdated timestamp is allowed
+                            is_valid, message = validate_backdated_timestamp(activity_date)
+                            if not is_valid:
+                                flash(message, 'danger')
+                                return redirect(url_for('dashboard'))
+                                
+                            # Set time to start of day
+                            activity_date = activity_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                        except ValueError:
+                            # If date parsing fails, default to today
+                            activity_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                    else:
+                        # Default to today if no date in image
+                        activity_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
                     
-                    # Find the most recent step log for today
+                    # Calculate tomorrow for the query
+                    tomorrow = activity_date + timedelta(days=1)
+                    
+                    # Find the most recent step log for the activity date
                     latest_log = StepLog.query.filter(
                         StepLog.user_id == current_user.id,
-                        StepLog.timestamp >= today,
+                        StepLog.timestamp >= activity_date,
                         StepLog.timestamp < tomorrow
                     ).order_by(StepLog.steps.desc()).first()
                     
@@ -1200,7 +1317,7 @@ def upload_steps_screenshot():
                     existing_steps = latest_log.steps if latest_log else 0
                     
                     if steps <= existing_steps:
-                        flash('No new steps detected. Your current recorded steps for today is already higher.', 'warning')
+                        flash(f'No new steps detected. Your recorded steps for {activity_date.strftime("%Y-%m-%d")} is already higher.', 'warning')
                         return redirect(url_for('dashboard'))
                     
                     incremental_steps = steps - existing_steps
@@ -1209,8 +1326,9 @@ def upload_steps_screenshot():
                     multiplier = get_points_multiplier()
                     points = (incremental_steps // 100) * multiplier
                     
-                    # Log the steps
+                    # Log the steps with backdated timestamp
                     log = StepLog(user_id=current_user.id, steps=steps, points=points)
+                    log.timestamp = activity_date  # Set the backdated timestamp
                     
                     # Update user stats
                     current_user.total_steps += incremental_steps
@@ -1220,16 +1338,22 @@ def upload_steps_screenshot():
                     house = House.query.filter_by(name=current_user.house).first()
                     if house:
                         house.total_points += points
-                        if hasattr(house, 'total_steps'):
-                            house.total_steps += incremental_steps
+                        house.total_steps += incremental_steps
                     
                     db.session.add(log)
                     db.session.commit()
                     
                     # Add multiplier info to the message if applicable
                     multiplier_text = f" ({multiplier}x multiplier!)" if multiplier > 1 else ""
-                    log_activity(app, current_user.id, 'Screenshot Steps Logged', f'{incremental_steps} new steps{multiplier_text}')
-                    flash(f'Successfully processed screenshot! Added {points} points for {incremental_steps} new steps.{multiplier_text}', 'success')
+                    
+                    date_info = ""
+                    if activity_date.date() != datetime.now(timezone.utc).date():
+                        date_info = f" for {activity_date.strftime('%Y-%m-%d')}"
+                    
+                    log_activity(app, current_user.id, 'Screenshot Steps Logged', 
+                                 f'{incremental_steps} new steps{multiplier_text}{date_info}')
+                    
+                    flash(f'Successfully processed screenshot! Added {points} points for {incremental_steps} new steps{date_info}.{multiplier_text}', 'success')
                 else:
                     flash('Steps tracking is not available yet. Please run the migration script.', 'warning')
             else:
@@ -1540,9 +1664,14 @@ def google_fit_callback():
         log_activity(app, current_user.id, 'Google Fit Connected', 'Google Fit account connected successfully')
         flash('Google Fit connected successfully!', 'success')
         
-        # Perform initial sync
-        from background_tasks import sync_google_fit_for_user
-        sync_google_fit_for_user(current_user)
+        # Perform initial sync for the past week
+        sync_result = sync_week_for_user(current_user)
+        if sync_result["success"] and sync_result["total_steps"] > 0:
+            flash(f'Successfully synced {sync_result["total_steps"]} steps from the past week ({sync_result["total_points"]} points)', 'success')
+        elif sync_result["success"]:
+            flash('No new steps found in the past week', 'info')
+        else:
+            flash(f'Connected to Google Fit but sync failed: {sync_result.get("error", "Unknown error")}', 'warning')
         
         return redirect(url_for('dashboard'))
     except Exception as e:
@@ -1556,10 +1685,31 @@ def get_google_fit_steps():
     access_token = current_user.google_fit_token
     if not access_token:
         return jsonify({"error": "Google Fit not linked"}), 401
-
-    now = datetime.utcnow()
-    start_of_day = datetime(now.year, now.month, now.day)
+    
+    # Get the date parameter from the request (YYYY-MM-DD format)
+    # If not provided, use today's date
+    date_str = request.args.get('date')
+    if date_str:
+        try:
+            target_date = datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+    else:
+        target_date = datetime.utcnow()
+    
+    # Make target_date timezone-aware
+    if target_date.tzinfo is None:
+        target_date = target_date.replace(tzinfo=timezone.utc)
+    
+    # Validate the backdated timestamp
+    is_valid, message = validate_backdated_timestamp(target_date)
+    if not is_valid:
+        return jsonify({"error": message}), 400
+    
+    # Set to start of day
+    start_of_day = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
     end_of_day = start_of_day + timedelta(days=1)
+    
     start_time_millis = int(start_of_day.timestamp() * 1000)
     end_time_millis = int(end_of_day.timestamp() * 1000)
 
@@ -1594,13 +1744,11 @@ def get_google_fit_steps():
                         total_steps_today += value.get("intVal", 0)
 
         # Update user and house stats
-        # Only log if steps are greater than the last log for today
-        today = start_of_day.replace(tzinfo=timezone.utc)
-        tomorrow = end_of_day.replace(tzinfo=timezone.utc)
+        # Only log if steps are greater than the last log for that specific day
         latest_log = StepLog.query.filter(
             StepLog.user_id == current_user.id,
-            StepLog.timestamp >= today,
-            StepLog.timestamp < tomorrow
+            StepLog.timestamp >= start_of_day,
+            StepLog.timestamp < end_of_day
         ).order_by(StepLog.steps.desc()).first()
         existing_steps = latest_log.steps if latest_log else 0
 
@@ -1609,7 +1757,8 @@ def get_google_fit_steps():
             multiplier = get_points_multiplier()
             points = (incremental_steps // 100) * multiplier
 
-            log = StepLog(user_id=current_user.id, steps=total_steps_today, points=points)
+            log = StepLog(user_id=current_user.id, steps=total_steps_today, points=points, source='google_fit')
+            log.timestamp = start_of_day  # Set backdated timestamp
             db.session.add(log)
 
             current_user.total_steps += incremental_steps
@@ -1621,820 +1770,311 @@ def get_google_fit_steps():
                 house.total_points += points
 
             db.session.commit()
-            log_activity(app, current_user.id, 'Google Fit Steps Synced', f'{incremental_steps} new steps ({points} points)')
+            
+            date_info = ""
+            if target_date.date() != datetime.now(timezone.utc).date():
+                date_info = f" for {start_of_day.strftime('%Y-%m-%d')}"
+                
+            log_activity(app, current_user.id, 'Google Fit Steps Synced', 
+                         f'{incremental_steps} new steps{date_info} ({points} points)')
 
-        return jsonify({"success": True, "steps": total_steps_today})
+            return jsonify({
+                "success": True, 
+                "steps": total_steps_today,
+                "date": start_of_day.strftime('%Y-%m-%d'),
+                "points_added": points,
+                "message": f"Added {points} points for {incremental_steps} new steps{date_info}"
+            })
+        else:
+            return jsonify({
+                "success": True, 
+                "steps": total_steps_today,
+                "date": start_of_day.strftime('%Y-%m-%d'),
+                "points_added": 0,
+                "message": f"No new steps to add for {start_of_day.strftime('%Y-%m-%d')}"
+            })
 
     except Exception as e:
         app.logger.error(f"Error fetching Google Fit steps: {str(e)}")
         return jsonify({"error": "An error occurred while fetching steps"}), 500
 
-@app.route('/google_fit_auth')
-@login_required
-def google_fit_auth():
-    """Initialize Google Fit OAuth flow"""
-    # Create a random state token to prevent request forgery
-    state = secrets.token_urlsafe(16)
-    session['google_oauth_state'] = state
-    
-    # Get credentials from environment variables
-    client_id = os.environ.get('GOOGLE_CLIENT_ID')
-    redirect_uri = os.environ.get('GOOGLE_FIT_REDIRECT_URI')
-    
-    if not client_id or not redirect_uri:
-        flash('Google Fit integration is not properly configured.', 'danger')
-        return redirect(url_for('dashboard'))
-    
-    # Define scope for Google Fit API access
-    scopes = [
-        'https://www.googleapis.com/auth/fitness.activity.read',
-        'https://www.googleapis.com/auth/fitness.location.read'
-    ]
-    
-    # Build authorization URL
-    auth_url = (
-        'https://accounts.google.com/o/oauth2/auth'
-        f'?client_id={client_id}'
-        f'&redirect_uri={redirect_uri}'
-        f'&scope={"+".join(scopes)}'
-        '&response_type=code'
-        '&access_type=offline'
-        '&prompt=consent'  # Force to always get refresh token
-        f'&state={state}'
-    )
-    
-    app.logger.info(f"Auth URL: {auth_url}")
-    
-    # Log the authorization attempt
-    log_activity(app, current_user.id, 'Google Fit Auth', 'Started Google Fit authorization')
-    
-    # Redirect user to Google's OAuth consent page
-    return redirect(auth_url)
-
-GARMIN_CLIENT_ID = os.getenv('GARMIN_CLIENT_ID')
-GARMIN_CLIENT_SECRET = os.getenv('GARMIN_CLIENT_SECRET')
-GARMIN_REDIRECT_URI = os.getenv('GARMIN_REDIRECT_URI')
-
-@app.route('/garmin_auth')
-@login_required
-def garmin_auth():
-    # Generate code_verifier and code_challenge
-    code_verifier = pkce.generate_code_verifier(length=128)
-    code_challenge = pkce.get_code_challenge(code_verifier)
-    session['garmin_code_verifier'] = code_verifier
-
-    params = {
-        "response_type": "code",
-        "client_id": GARMIN_CLIENT_ID,
-        "redirect_uri": GARMIN_REDIRECT_URI,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-        "state": secrets.token_urlsafe(16)
-    }
-    auth_url = "https://connect.garmin.com/oauth2Confirm?" + urlencode(params)
-    return redirect(auth_url)
-
-@app.route('/garmin_callback')
-@login_required
-def garmin_callback():
-    code = request.args.get('code')
-    error = request.args.get('error')
-    if error:
-        flash(f"Garmin authorization failed: {error}", "danger")
-        return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
-    if not code:
-        flash("No authorization code received from Garmin.", "danger")
-        return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
-
-    code_verifier = session.get('garmin_code_verifier')
-    if not code_verifier:
-        flash("Missing PKCE code verifier. Please try again.", "danger")
-        return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
-
-    token_url = "https://connectapi.garmin.com/di-oauth2-service/oauth/token"
-    data = {
-        "grant_type": "authorization_code",
-        "client_id": GARMIN_CLIENT_ID,
-        "client_secret": GARMIN_CLIENT_SECRET,
-        "code": code,
-        "code_verifier": code_verifier,
-        "redirect_uri": GARMIN_REDIRECT_URI
-    }
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+def sync_google_fit_for_user(user):
+    """Sync Google Fit data for a user for the past week and return detailed results"""
+    if not user.google_fit_token or not user.google_refresh_token:
+        return {"error": "Google Fit not linked", "success": False}
+        
     try:
-        r = requests.post(token_url, data=data, headers=headers, timeout=10)
-        if r.status_code != 200:
-            flash("Failed to get Garmin access token.", "danger")
-            return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
-        token_info = r.json()
-        session['garmin_access_token'] = token_info.get("access_token")
-        session['garmin_refresh_token'] = token_info.get("refresh_token")
-        flash("Garmin account linked successfully!", "success")
+        # Refresh token if needed
+        current_time = datetime.now(timezone.utc)
+        token_expiry = ensure_tz_aware(user.google_token_expiry)
+            
+        if token_expiry and current_time > token_expiry:
+            refresh_successful = refresh_google_fit_token(user)
+            if not refresh_successful:
+                return {"error": "Failed to refresh Google Fit token", "success": False}
+                
+        # Calculate date range - fetch data for past week
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=7)
+        
+        # Track results for each day
+        days_data = []
+        total_steps_synced = 0
+        total_points_added = 0
+        
+        # Iterate through each day in the past week
+        current_date = start_time
+        while current_date < end_time:
+            # Set to start of day
+            day_start = datetime(current_date.year, current_date.month, current_date.day, tzinfo=timezone.utc)
+            day_end = day_start + timedelta(days=1)
+            
+            # Convert to milliseconds for Google Fit API
+            day_start_ms = int(day_start.timestamp() * 1000)
+            day_end_ms = int(day_end.timestamp() * 1000)
+            
+            # Build Google Fit API request
+            headers = {
+                'Authorization': f'Bearer {user.google_fit_token}'
+            }
+            
+            # Use Google Fit REST API to fetch step count
+            url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+            body = {
+                "aggregateBy": [{
+                    "dataTypeName": "com.google.step_count.delta",
+                    "dataSourceId": "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
+                }],
+                "bucketByTime": {"durationMillis": 86400000},  # 24 hours
+                "startTimeMillis": day_start_ms,
+                "endTimeMillis": day_end_ms
+            }
+            
+            response = requests.post(url, json=body, headers=headers)
+            if response.status_code != 200:
+                app.logger.warning(f"Google Fit API error for user {user.id} on {day_start.strftime('%Y-%m-%d')}: {response.status_code}")
+                # Add error to the day's data
+                days_data.append({
+                    "date": day_start.strftime('%Y-%m-%d'),
+                    "error": f"API error: {response.status_code}",
+                    "steps": 0,
+                    "points": 0,
+                    "success": False
+                })
+                # Continue to next day
+                current_date += timedelta(days=1)
+                continue
+                
+            data = response.json()
+            
+            # Process the response to get step count
+            steps = 0
+            if 'bucket' in data:
+                for bucket in data['bucket']:
+                    if 'dataset' in bucket:
+                        for dataset in bucket['dataset']:
+                            if 'point' in dataset:
+                                for point in dataset['point']:
+                                    if 'value' in point:
+                                        for value in point['value']:
+                                            if 'intVal' in value:
+                                                steps += value['intVal']
+            
+            # If no steps for this day, log it and continue
+            if steps == 0:
+                days_data.append({
+                    "date": day_start.strftime('%Y-%m-%d'),
+                    "message": "No steps recorded",
+                    "steps": 0,
+                    "points": 0,
+                    "success": True
+                })
+                current_date += timedelta(days=1)
+                continue
+                
+            # Compare with existing step logs to avoid double counting
+            latest_log = StepLog.query.filter(
+                StepLog.user_id == user.id,
+                StepLog.timestamp >= day_start,
+                StepLog.timestamp < day_end,
+                StepLog.source == 'google_fit'
+            ).order_by(StepLog.steps.desc()).first()
+            
+            # Calculate incremental steps if we have existing logs
+            existing_steps = latest_log.steps if latest_log else 0
+            incremental_steps = steps - existing_steps if existing_steps < steps else 0
+                
+            if incremental_steps <= 0:
+                days_data.append({
+                    "date": day_start.strftime('%Y-%m-%d'),
+                    "message": f"No new steps (existing: {existing_steps}, new: {steps})",
+                    "steps": steps,
+                    "points": 0,
+                    "success": True
+                })
+                current_date += timedelta(days=1)
+                continue
+                
+            # Calculate points (1 point per 100 steps)
+            # Apply multiplier only for current day, use 1x for previous days
+            multiplier = 1
+            if day_start.date() == datetime.now(timezone.utc).date():
+                # Only use the multiplier for today
+                multiplier = get_points_multiplier()
+                
+            points = (incremental_steps // 100) * multiplier
+            
+            # Create new step log
+            log = StepLog(
+                user_id=user.id, 
+                steps=steps, 
+                points=points,
+                source='google_fit'
+            )
+            log.timestamp = day_start  # Set to the specific day
+            
+            # Update user stats with only the incremental steps
+            user.total_steps = (user.total_steps or 0) + incremental_steps
+            user.total_points += points
+            
+            # Update house points
+            house = House.query.filter_by(name=user.house).first()
+            if house:
+                house.total_points += points
+                # Make sure the house has total_steps attribute before updating
+                if hasattr(house, 'total_steps'):
+                    house.total_steps = (house.total_steps or 0) + incremental_steps
+            
+            db.session.add(log)
+            db.session.commit()
+            
+            # Add to day results
+            days_data.append({
+                "date": day_start.strftime('%Y-%m-%d'),
+                "message": f"Added {incremental_steps} steps",
+                "steps": steps,
+                "incremental_steps": incremental_steps,
+                "points": points,
+                "multiplier": multiplier,
+                "success": True
+            })
+            
+            # Accumulate stats
+            total_steps_synced += incremental_steps
+            total_points_added += points
+            
+            # Move to next day
+            current_date += timedelta(days=1)
+            
+            # Sleep briefly to avoid API rate limits
+            time.sleep(0.5)
+        
+        # Log activity for the whole sync
+        if total_steps_synced > 0:
+            log_activity(app, user.id, 'Google Fit Sync', 
+                       f'Added {total_steps_synced} steps across {len(days_data)} days ({total_points_added} points)')
+            
+            return {
+                "success": True,
+                "message": f"Synced {total_steps_synced} steps across {len(days_data)} days ({total_points_added} points)",
+                "total_steps": total_steps_synced,
+                "total_points": total_points_added,
+                "days": days_data
+            }
+        else:
+            return {
+                "success": True,
+                "message": "No new steps to sync from the past week",
+                "total_steps": 0,
+                "total_points": 0,
+                "days": days_data
+            }
+        
     except Exception as e:
-        flash("An error occurred while linking Garmin.", "danger")
-    return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
+        app.logger.error(f"Error syncing Google Fit week for user {user.id}: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
-
-@app.route('/get_garmin_steps')
-@login_required
-def get_garmin_steps():
-    access_token = session.get('garmin_access_token')
-    if not access_token:
-        return jsonify({"error": "Garmin not linked"}), 401
-
-    from datetime import datetime, timedelta
-
-    now = datetime.utcnow()
-    start_of_day = datetime(now.year, now.month, now.day)
-    end_of_day = start_of_day + timedelta(days=1)
-
-    # Use seconds, not milliseconds!
-    start_time_seconds = int(start_of_day.timestamp())
-    end_time_seconds = int(end_of_day.timestamp())
-
-    url = f'https://apis.garmin.com/wellness-api/rest/dailies?uploadStartTimeInSeconds={start_time_seconds}&uploadEndTimeInSeconds={end_time_seconds}'
-    headers = {"Authorization": f"Bearer {access_token}"}
-
+def sync_all_google_fit_users():
+    """Sync Google Fit data for all users with Google Fit integration"""
     try:
-        r = requests.get(url, headers=headers, timeout=10)
-        #app.logger.info(f"Garmin API status: {r.status_code}, response: {r.text}")
-        if r.status_code != 200:
-            return jsonify({"error": "Failed to fetch Garmin data"}), 400
-        data = r.json()
-        steps = data[0].get('steps', 0) if data else 0
-        stairs = data[0].get('floorsClimbed', 0) if data else 0
-        return jsonify({"steps": steps, "stairs": stairs})
+        # Get all users with Google Fit tokens
+        users = User.query.filter(User.google_fit_token.isnot(None)).all()
+        logger.info(f"Starting Google Fit sync for {len(users)} users")
+        
+        success_count = 0
+        for user in users:
+            # Use the new sync function that handles the full week
+            result = sync_week_for_user(user)
+            if result["success"] and result["total_steps"] > 0:
+                success_count += 1
+                logger.info(f"Successfully synced {result['total_steps']} steps for user {user.id}")
+            elif not result["success"]:
+                logger.error(f"Failed to sync Google Fit for user {user.id}: {result.get('error')}")
+                
+        logger.info(f"Google Fit sync completed. Successful syncs: {success_count}/{len(users)}")
     except Exception as e:
-        app.logger.error(f"Garmin fetch error: {e}")
-        return jsonify({"error": "An error occurred while fetching Garmin data"}), 500
-
-@app.route('/analytics-dashboard')
+        logger.error(f"Error in sync_all_google_fit_users: {str(e)}")
+        
+@app.route('/user-management')
 @login_required
 @admin_required
-def analytics_dashboard():
-    """Analytics dashboard for admin users to view usage statistics"""
-    # Verify admin status again as an extra precaution
+@limiter.limit("200 per minute")
+def user_management():
+    """Dedicated page for user management with search functionality"""
+    # Verify admin status as an extra precaution
     if not current_user.is_admin:
-        log_access_attempt(False, "Analytics Dashboard", "Non-admin access attempt")
+        log_access_attempt(False, "User Management", "Non-admin access attempt")
         flash('Access denied. Admin privileges required.', 'danger')
         return redirect(url_for('dashboard'))
-        
+    
+    # Get search parameters
+    search_term = request.args.get('search', '')
+    search_field = request.args.get('field', 'username')
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)  # Default to 50 users per page
+    
+    # Build the query
+    query = User.query
+    
+    # Apply search filter if provided
+    if search_term:
+        if search_field == 'username':
+            query = query.filter(User.username.ilike(f'%{search_term}%'))
+        elif search_field == 'house':
+            query = query.filter(User.house.ilike(f'%{search_term}%'))
+        elif search_field == 'email':
+            query = query.filter(User.email.ilike(f'%{search_term}%'))
+    
+    # Get total count for pagination
+    total_users = query.count()
+    
+    # Apply pagination
+    users = query.order_by(User.username).paginate(page=page, per_page=per_page)
+    
     # Check if there's an active event
     active_event = get_active_event()
     
-    # Get data for analytics
-    try:
-        # Get total user count
-        total_users = User.query.filter(User.is_admin == False).count()
-        
-        # Get active users (users who logged in within the last 30 days)
-        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-        active_users = User.query.filter(
-            User.is_admin == False,
-            User.last_login >= thirty_days_ago
-        ).count()
-        
-        
-        # Prepare house stats and query filters based on active event
-       
-        houses = House.query.all()
-        house_stats = []
-        
-        # Prepare query filters based on active event
-        if active_event:
-            # For an active event, we need to filter logs by the event time period
-            # Ensure event dates are timezone-aware
-            event_start = active_event.start_date
-            event_end = active_event.end_date
-            
-            if event_start.tzinfo is None:
-                event_start = event_start.replace(tzinfo=timezone.utc)
-            if event_end.tzinfo is None:
-                event_end = event_end.replace(tzinfo=timezone.utc)
-                
-            climb_query_filter = ClimbLog.timestamp.between(event_start, event_end)
-            standing_query_filter = StandingLog.timestamp.between(event_start, event_end)
-            steps_query_filter = StepLog.timestamp.between(event_start, event_end)
-            
-            # Get event-specific points for each house
-            house_event_points = {}
-            for house in houses:
-                house_event_points[house.name] = get_event_points(house_name=house.name)
-        else:
-            # For all-time stats, no time filter is needed
-            climb_query_filter = True
-            standing_query_filter = True
-            steps_query_filter = True
-            house_event_points = None
-        
-        # Get total activities per type (filtered by event period if an event is active)
-        total_climbs = db.session.query(func.count(ClimbLog.id)).filter(climb_query_filter).scalar() or 0
-        total_standings = db.session.query(func.count(StandingLog.id)).filter(standing_query_filter).scalar() or 0
-        total_step_logs = db.session.query(func.count(StepLog.id)).filter(steps_query_filter).scalar() or 0
-        
-        # Get house activity distribution
-        for house in houses:
-            house_users = User.query.filter_by(house=house.name).all()
-            user_ids = [user.id for user in house_users]
-            
-            if user_ids:  # Only query if there are users in the house
-                # Apply event time filter if there's an active event
-                climbs = db.session.query(func.count(ClimbLog.id)).filter(
-                    ClimbLog.user_id.in_(user_ids),
-                    climb_query_filter
-                ).scalar() or 0
-                
-                standings = db.session.query(func.count(StandingLog.id)).filter(
-                    StandingLog.user_id.in_(user_ids),
-                    standing_query_filter
-                ).scalar() or 0
-                
-                steps = db.session.query(func.count(StepLog.id)).filter(
-                    StepLog.user_id.in_(user_ids),
-                    steps_query_filter
-                ).scalar() or 0
-            else:
-                climbs = standings = steps = 0
-            
-            # Use event-specific points if an event is active
-            points = house_event_points[house.name]['total_points'] if active_event and house_event_points else house.total_points
-            
-            house_stats.append({
-                'name': house.name,
-                'climbs': climbs,
-                'standings': standings,
-                'steps': steps,
-                'total_activities': climbs + standings + steps,
-                'points': points,
-                'members': house.member_count
-            })
-        
-        # Calculate activity distribution by day of week
-        days_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        day_stats = []
-        
-        for i, day in enumerate(days_of_week):
-            # In SQLite, weekday is 0-6 where 0 is Sunday, so we need to adjust
-            # Adjust i to match SQLite's weekday function (Sunday=0, Monday=1, etc.)
-            sqlite_day = (i + 1) % 7
-            
-            # Apply event time filter if there's an active event
-            climbs = db.session.query(func.count(ClimbLog.id)).filter(
-                func.strftime('%w', ClimbLog.timestamp) == str(sqlite_day),
-                climb_query_filter
-            ).scalar() or 0
-            
-            standings = db.session.query(func.count(StandingLog.id)).filter(
-                func.strftime('%w', StandingLog.timestamp) == str(sqlite_day),
-                standing_query_filter
-            ).scalar() or 0
-            
-            steps = db.session.query(func.count(StepLog.id)).filter(
-                func.strftime('%w', StepLog.timestamp) == str(sqlite_day),
-                steps_query_filter
-            ).scalar() or 0
-            
-            day_stats.append({
-                'day': day,
-                'climbs': climbs,
-                'standings': standings,
-                'steps': steps,
-                'total': climbs + standings + steps
-            })
-        
-        # Get activity trend over last 30 days
-        trend_data = []
-        now = datetime.now(timezone.utc)  # Ensure we use timezone-aware datetime
-        
-        for i in range(30, 0, -1):
-            date = now - timedelta(days=i)
-            next_date = date + timedelta(days=1)
-            date_str = date.strftime('%Y-%m-%d')
-            
-            # Skip dates outside event period if an event is active
-            if active_event:
-                # Convert dates to aware datetimes
-                event_start = active_event.start_date
-                event_end = active_event.end_date
-                
-                if event_start.tzinfo is None:
-                    event_start = event_start.replace(tzinfo=timezone.utc)
-                if event_end.tzinfo is None:
-                    event_end = event_end.replace(tzinfo=timezone.utc)
-                
-                # Check if date is within event period
-                if date > event_end or next_date < event_start:
-                    trend_data.append({
-                        'date': date_str,
-                        'climbs': 0,
-                        'standings': 0,
-                        'steps': 0,
-                        'total': 0
-                    })
-                    continue
-                
-                # For event days, adjust range to overlap with event
-                start_range = max(date, event_start)
-                end_range = min(next_date, event_end)
-            else:
-                # For normal view, just use date ranges
-                start_range = date
-                end_range = next_date
-            
-            # Ensure dates are timezone-aware
-            if start_range.tzinfo is None:
-                start_range = start_range.replace(tzinfo=timezone.utc)
-            if end_range.tzinfo is None:
-                end_range = end_range.replace(tzinfo=timezone.utc)
-            
-            # Create SQL filters
-            date_filter = and_(
-                ClimbLog.timestamp >= start_range,
-                ClimbLog.timestamp < end_range
-            )
-            
-            date_filter_standing = and_(
-                StandingLog.timestamp >= start_range,
-                StandingLog.timestamp < end_range
-            )
-            
-            date_filter_steps = and_(
-                StepLog.timestamp >= start_range,
-                               StepLog.timestamp < end_range
-            )
-            
-            # Query activity counts
-            climbs = db.session.query(func.count(ClimbLog.id)).filter(date_filter).scalar() or 0
-            standings = db.session.query(func.count(StandingLog.id)).filter(date_filter_standing).scalar() or 0
-            steps = db.session.query(func.count(StepLog.id)).filter(date_filter_steps).scalar() or 0
-            
-            trend_data.append({
-                'date': date_str,
-                'climbs': climbs,
-                'standings': standings,
-                'steps': steps,
-                'total': climbs + standings + steps
-            })
-        
-        # Log successful access
-        log_access_attempt(True, "Analytics Dashboard", "Admin access successful")
-        
-        return render_template('analytics_dashboard.html',
-                            total_users=total_users,
-                            active_users=active_users,
-                            total_climbs=total_climbs,
-                            total_standings=total_standings,
-                            total_step_logs=total_step_logs,
-                            house_stats=house_stats,
-                            day_stats=day_stats,
-                            trend_data=trend_data,
-                            active_event=active_event)
+    # Get event-specific points for users if an event is active
+    user_event_points = {}
+    if active_event:
+        # Get event points for each user on the current page
+        for user in users.items:
+            user_event_points[user.id] = get_event_points(user_id=user.id)
     
-    except Exception as e:
-        app.logger.error(f"Error in analytics dashboard: {str(e)}")
-        flash('An error occurred while loading analytics data', 'danger')
-        return redirect(url_for('admin_dashboard'))
-
-@app.route('/unlink_google_fit', methods=['POST'])
-@login_required
-def unlink_google_fit():
-    try:
-        # Remove Google Fit tokens and expiry from user
-        current_user.google_fit_token = None
-        current_user.google_refresh_token = None
-        current_user.google_token_expiry = None
-        db.session.commit()
-        log_activity(app, current_user.id, 'Google Fit Unlinked', 'User unlinked Google Fit account')
-        flash('Google Fit account unlinked successfully.', 'success')
-    except Exception as e:
-        app.logger.error(f"Error unlinking Google Fit: {str(e)}")
-        flash('An error occurred while unlinking Google Fit.', 'danger')
-    return redirect(url_for('dashboard'))
-
-@app.route('/admin-dashboard/update-user-points', methods=['POST'])
-@login_required
-@admin_required
-@limiter.limit("200 per minute")
-@verify_content_type('application/x-www-form-urlencoded')
-def update_user_points():
-    # Verify admin status again as an extra precaution
-    if not current_user.is_admin:
-        log_access_attempt(False, "Update User Points", "Non-admin access attempt")
-        flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('admin_dashboard'))
-        
-    try:
-        user_id = request.form.get('user_id')
-        new_points = request.form.get('new_points')
-        
-        if not user_id or new_points is None:
-            flash('User ID and points are required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Validate inputs
-        try:
-            user_id = int(user_id)
-            new_points = int(new_points)
-        except ValueError:
-            flash('Invalid user ID or points value', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        if new_points < 0:
-            flash('Points cannot be negative', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Find the user
-        user = User.query.get_or_404(user_id)
-        
-        # Don't allow updating the admin user
-        if user.is_admin:
-            log_access_attempt(False, "Update User Points", f"Attempted to update admin user points: {user.username}")
-            flash('Cannot update admin user points', 'danger')
-            return redirect(url_for('admin_dashboard'))
-        
-        # Calculate point difference
-        point_difference = new_points - user.total_points
-        
-        # Update user points
-        user.total_points = new_points
-        
-        # Update house points
-        house = House.query.filter_by(name=user.house).first()
-        if house:
-            house.total_points += point_difference
-        
-        db.session.commit()
-        
-        # Log the activity
-        log_activity(app, current_user.id, 'User Points Updated', 
-                    f'User {user.username} points updated from {user.total_points - point_difference} to {new_points} (difference: {point_difference:+d})')
-        flash(f'User points updated successfully', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error updating user points: {str(e)}")
-        flash('An error occurred while updating user points', 'danger')
+    # Get all houses for filtering
+    houses = House.query.order_by(House.name).all()
     
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin-dashboard/update-house-points', methods=['POST'])
-@login_required
-@admin_required
-@limiter.limit("200 per minute")
-@verify_content_type('application/x-www-form-urlencoded')
-def update_house_points():
-    # Verify admin status again as an extra precaution
-    if not current_user.is_admin:
-        log_access_attempt(False, "Update House Points", "Non-admin access attempt")
-        flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('admin_dashboard'))
-        
-    try:
-        house_id = request.form.get('house_id')
-        new_points = request.form.get('new_points')
-        
-        if not house_id or new_points is None:
-            flash('House ID and points are required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Validate inputs
-        try:
-            house_id = int(house_id)
-            new_points = int(new_points)
-        except ValueError:
-            flash('Invalid house ID or points value', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        if new_points < 0:
-            flash('Points cannot be negative', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Find the house
-        house = House.query.get_or_404(house_id)
-        
-        # Calculate point difference
-        point_difference = new_points - house.total_points
-        
-        # Update house points
-        house.total_points = new_points
-        
-        # Update points for all users in the house
-        users_in_house = User.query.filter_by(house=house.name).all()
-        for user in users_in_house:
-            user.total_points += point_difference
-        
-        db.session.commit()
-        
-        # Log the activity
-        log_activity(app, current_user.id, 'House Points Updated', 
-                    f'House {house.name} points updated from {house.total_points - point_difference} to {new_points} (difference: {point_difference:+d})')
-        flash(f'House points updated successfully', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error updating house points: {str(e)}")
-        flash('An error occurred while updating house points', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin-dashboard/reset-house', methods=['POST'])
-@login_required
-@admin_required
-@limiter.limit("200 per minute")
-@verify_content_type('application/x-www-form-urlencoded')
-def reset_house():
-    # Verify admin status again as an extra precaution
-    if not current_user.is_admin:
-        log_access_attempt(False, "Reset House", "Non-admin access attempt")
-        flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('admin_dashboard'))
-        
-    try:
-        house_id = request.form.get('house_id')
-        if not house_id:
-            flash('House ID is required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Validate house_id is an integer
-        try:
-            house_id = int(house_id)
-        except ValueError:
-            flash('Invalid house ID', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Reset house statistics
-        house = House.query.get_or_404(house_id)
-        house_name = house.name
-        old_points = house.total_points
-        
-        house.total_points = 0
-        house.total_flights = 0
-        house.total_standing_time = 0
-        if hasattr(house, 'total_steps'):
-            house.total_steps = 0
-        
-        # Reset points for all users in this house
-        users_in_house = User.query.filter_by(house=house.name).all()
-        for user in users_in_house:
-            if not user.is_admin:  # Don't reset admin user stats
-                user.total_points = 0
-                user.total_flights = 0
-                user.total_standing_time = 0
-                if hasattr(user, 'total_steps'):
-                    user.total_steps = 0
-        
-        # Commit changes
-        db.session.commit()
-        
-        # Log the activity
-        log_activity(app, current_user.id, 'House Reset', f'House {house_name} points reset from {old_points} to 0')
-        flash(f'House {house_name} has been reset. All points and statistics are now zero.', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error resetting house: {str(e)}")
-        flash('An error occurred while resetting the house', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin-dashboard/reset-event-house', methods=['POST'])
-@login_required
-@admin_required
-@limiter.limit("200 per minute")
-@verify_content_type('application/x-www-form-urlencoded')
-def reset_event_house():
-    # Verify admin status again as an extra precaution
-    if not current_user.is_admin:
-        log_access_attempt(False, "Reset Event House", "Non-admin access attempt")
-        flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('admin_dashboard'))
-        
-    try:
-        house_id = request.form.get('house_id')
-        if not house_id:
-            flash('House ID is required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Validate house_id is an integer
-        try:
-            house_id = int(house_id)
-        except ValueError:
-            flash('Invalid house ID', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Check if there's an active event
-        active_event = get_active_event()
-        if not active_event:
-            flash('No active event found. Use all-time reset instead.', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Find the house
-        house = House.query.get_or_404(house_id)
-        house_name = house.name
-        
-        # Get current event points for logging
-        current_event_points = get_event_points(house_name=house_name)
-        old_points = current_event_points['total_points'] if current_event_points else 0
-        
-        if old_points == 0:
-            flash(f'House {house_name} already has 0 event points', 'info')
-            return redirect(url_for('admin_dashboard'))
-        
-        # Find a user from this house to create the adjustment log entry
-        house_user = User.query.filter_by(house=house_name, is_admin=False).first()
-        
-        if not house_user:
-            flash(f'No users found in {house_name} house to create adjustment log', 'danger')
-            return redirect(url_for('admin_dashboard'))
-        
-        # Create a negative adjustment log entry to zero out the house points
-        adjustment_log = ClimbLog(
-            user_id=house_user.id,
-            flights=0,  # No actual flights
-            points=-old_points,  # Negative points to zero out the total
-            notes=f"Admin reset: {house_name} event points reset from {old_points} to 0"
-        )
-        
-        db.session.add(adjustment_log)
-        db.session.commit()
-        
-        # Log the activity
-        log_activity(app, current_user.id, 'Event House Reset', 
-                    f'House {house_name} event points reset from {old_points} to 0 for event: {active_event.name}')
-        
-        flash(f'House {house_name} event points have been reset to 0.', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error resetting event house points: {str(e)}")
-        flash('An error occurred while resetting event house points', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin-dashboard/update-event-user-points', methods=['POST'])
-@login_required
-@admin_required
-@limiter.limit("200 per minute")
-@verify_content_type('application/x-www-form-urlencoded')
-def update_event_user_points():
-    # Verify admin status again as an extra precaution
-    if not current_user.is_admin:
-        log_access_attempt(False, "Update Event User Points", "Non-admin access attempt")
-        flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('admin_dashboard'))
-        
-    try:
-        user_id = request.form.get('user_id')
-        new_points = request.form.get('new_points')
-        
-        if not user_id or new_points is None:
-            flash('User ID and points are required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Validate inputs
-        try:
-            user_id = int(user_id)
-            new_points = int(new_points)
-        except ValueError:
-            flash('Invalid user ID or points value', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        if new_points < 0:
-            flash('Points cannot be negative', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Check if there's an active event
-        active_event = get_active_event()
-        if not active_event:
-            flash('No active event found. Use all-time points update instead.', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Find the user
-        user = User.query.get_or_404(user_id)
-        
-        # Don't allow updating the admin user
-        if user.is_admin:
-            log_access_attempt(False, "Update Event User Points", f"Attempted to update admin user points: {user.username}")
-            flash('Cannot update admin user points', 'danger')
-            return redirect(url_for('admin_dashboard'))
-        
-        # Get current event points
-        current_event_points = get_event_points(user_id=user_id)
-        old_points = current_event_points['total_points'] if current_event_points else 0
-        
-        # Calculate difference
-        point_difference = new_points - old_points
-        
-        # Create a log entry to adjust event points
-        # This creates an activity log during the event period to achieve the desired points
-        username = user.username
-        
-        if point_difference != 0:
-            # Create an adjustment log entry
-            adjustment_log = ClimbLog(
-                user_id=user_id,
-                flights=0,  # No actual flights
-                points=point_difference,  # The point adjustment needed
-                notes=f"Admin adjustment: Event points changed from {old_points} to {new_points}"
-            )
-            
-            db.session.add(adjustment_log)
-            db.session.commit()
-            
-            # Log the activity
-            log_activity(app, current_user.id, 'Event User Points Updated', 
-                        f'User {username} event points updated from {old_points} to {new_points} (difference: {point_difference:+d})')
-            flash(f'User {username} event points updated from {old_points} to {new_points}', 'success')
-        else:
-            flash(f'User {username} event points are already {new_points}', 'info')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error updating event user points: {str(e)}")
-        flash('An error occurred while updating event user points', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin-dashboard/update-event-house-points', methods=['POST'])
-@login_required
-@admin_required
-@limiter.limit("200 per minute")
-@verify_content_type('application/x-www-form-urlencoded')
-def update_event_house_points():
-    # Verify admin status again as an extra precaution
-    if not current_user.is_admin:
-        log_access_attempt(False, "Update Event House Points", "Non-admin access attempt")
-        flash('Access denied. Admin privileges required.', 'danger')
-        return redirect(url_for('admin_dashboard'))
-        
-    try:
-        house_id = request.form.get('house_id')
-        new_points = request.form.get('new_points')
-        
-        if not house_id or new_points is None:
-            flash('House ID and points are required', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Validate inputs
-        try:
-            house_id = int(house_id)
-            new_points = int(new_points)
-        except ValueError:
-            flash('Invalid house ID or points value', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        if new_points < 0:
-            flash('Points cannot be negative', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Check if there's an active event
-        active_event = get_active_event()
-        if not active_event:
-            flash('No active event found. Use all-time points update instead.', 'danger')
-            return redirect(url_for('admin_dashboard'))
-            
-        # Find the house
-        house = House.query.get_or_404(house_id)
-        
-        # Get current event points
-        current_event_points = get_event_points(house_name=house.name)
-        old_points = current_event_points['total_points'] if current_event_points else 0
-        
-        # Calculate difference
-        point_difference = new_points - old_points
-        
-        # Store house name for logging
-        house_name = house.name
-        
-        if point_difference != 0:
-            # Find a user from this house to create the adjustment log entry
-            house_user = User.query.filter_by(house=house_name, is_admin=False).first()
-            
-            if not house_user:
-                flash(f'No users found in {house_name} house to create adjustment log', 'danger')
-                return redirect(url_for('admin_dashboard'))
-            
-            # Create an adjustment log entry
-            adjustment_log = ClimbLog(
-                user_id=house_user.id,
-                flights=0,  # No actual flights
-                points=point_difference,  # The point adjustment needed
-                notes=f"Admin house adjustment: {house_name} event points changed from {old_points} to {new_points}"
-            )
-            
-            db.session.add(adjustment_log)
-            db.session.commit()
-            
-            # Log the activity
-            log_activity(app, current_user.id, 'Event House Points Updated', 
-                        f'House {house_name} event points updated from {old_points} to {new_points} (difference: {point_difference:+d})')
-            flash(f'House {house_name} event points updated from {old_points} to {new_points}', 'success')
-        else:
-            flash(f'House {house_name} event points are already {new_points}', 'info')
-        
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f"Error updating event house points: {str(e)}")
-        flash('An error occurred while updating event house points', 'danger')
-    
-    return redirect(url_for('admin_dashboard'))
+    log_access_attempt(True, "User Management", "Admin access successful")
+    return render_template('user_management.html',
+                         users=users,
+                         houses=houses,
+                         search_term=search_term,
+                         search_field=search_field,
+                         total_users=total_users,
+                         active_event=active_event,
+                         user_event_points=user_event_points,
+                         page=page,
+                         per_page=per_page)
