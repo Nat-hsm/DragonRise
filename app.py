@@ -1697,43 +1697,69 @@ def garmin_auth():
 @app.route('/garmin_callback')
 @login_required
 def garmin_callback():
-    code = request.args.get('code')
-    error = request.args.get('error')
-    if error:
-        flash(f"Garmin authorization failed: {error}", "danger")
-        return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
-    if not code:
-        flash("No authorization code received from Garmin.", "danger")
-        return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
-
-    code_verifier = session.get('garmin_code_verifier')
-    if not code_verifier:
-        flash("Missing PKCE code verifier. Please try again.", "danger")
-        return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
-
-    token_url = "https://connectapi.garmin.com/di-oauth2-service/oauth/token"
-    data = {
-        "grant_type": "authorization_code",
-        "client_id": GARMIN_CLIENT_ID,
-        "client_secret": GARMIN_CLIENT_SECRET,
-        "code": code,
-        "code_verifier": code_verifier,
-        "redirect_uri": GARMIN_REDIRECT_URI
-    }
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
     try:
-        r = requests.post(token_url, data=data, headers=headers, timeout=10)
-        if r.status_code != 200:
+        # Get the authorization code from the callback
+        code = request.args.get('code')
+        error = request.args.get('error')
+        if error:
+            flash(f"Garmin authorization failed: {error}", "danger")
+            return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
+        if not code:
+            flash("No authorization code received from Garmin.", "danger")
+            return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
+
+        code_verifier = session.get('garmin_code_verifier')
+        if not code_verifier:
+            flash("Missing PKCE code verifier. Please try again.", "danger")
+            return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
+
+        token_url = "https://connectapi.garmin.com/di-oauth2-service/oauth/token"
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": GARMIN_CLIENT_ID,
+            "client_secret": GARMIN_CLIENT_SECRET,
+            "code": code,
+            "code_verifier": code_verifier,
+            "redirect_uri": GARMIN_REDIRECT_URI
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        response = requests.post(token_url, data=data, headers=headers, timeout=10)
+        
+        if response.status_code != 200:
             flash("Failed to get Garmin access token.", "danger")
             return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
-        token_info = r.json()
-        session['garmin_access_token'] = token_info.get("access_token")
-        session['garmin_refresh_token'] = token_info.get("refresh_token")
-        flash("Garmin account linked successfully!", "success")
+        
+        # Parse token response
+        token_info = response.json()
+        access_token = token_info.get("access_token")
+        refresh_token = token_info.get("refresh_token")
+        expires_in = token_info.get("expires_in", 3600)
+        
+        # Store tokens in user model (instead of session)
+        current_user.garmin_access_token = access_token
+        current_user.garmin_refresh_token = refresh_token
+        current_user.garmin_token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        db.session.commit()
+        
+        # Remove session storage (optional cleanup)
+        session.pop('garmin_access_token', None)
+        session.pop('garmin_refresh_token', None)
+        session.pop('garmin_token_expiry', None)
+        
+        # Log the successful connection
+        log_activity(app, current_user.id, 'Garmin Connected', 'Garmin Connect account connected successfully')
+        flash("Garmin Connect account linked successfully!", "success")
+        
+        # Clear OAuth session data
+        session.pop('garmin_code_verifier', None)
+        session.pop('garmin_oauth_state', None)
+        
+        return redirect(url_for('dashboard'))
+        
     except Exception as e:
-        flash("An error occurred while linking Garmin.", "danger")
-    return redirect(url_for('dashboard'))  # Changed from 'unified_dashboard' to 'dashboard'
-
+        app.logger.error(f"Error in Garmin callback: {str(e)}")
+        flash("An error occurred while connecting to Garmin. Please try again.", "danger")
+        return redirect(url_for('dashboard'))
 
 @app.route('/get_garmin_steps')
 @login_required
@@ -1928,7 +1954,7 @@ def analytics_dashboard():
                         'date': date_str,
                         'climbs': 0,
                         'standings': 0,
-                        'steps': 0,
+                        'steps':  0,
                         'total': 0
                     })
                     continue
@@ -2010,6 +2036,26 @@ def unlink_google_fit():
         app.logger.error(f"Error unlinking Google Fit: {str(e)}")
         flash('An error occurred while unlinking Google Fit.', 'danger')
     return redirect(url_for('dashboard'))
+
+@app.route('/unlink_garmin', methods=['POST'])
+@login_required
+def unlink_garmin():
+    try:
+        # Remove Garmin tokens from session and user model if stored
+        session.pop('garmin_access_token', None)
+        session.pop('garmin_refresh_token', None)
+        if hasattr(current_user, 'garmin_access_token'):
+            current_user.garmin_access_token = None
+            current_user.garmin_refresh_token = None
+            current_user.garmin_token_expiry = None
+            db.session.commit()
+        log_activity(app, current_user.id, 'Garmin Unlinked', 'User unlinked Garmin account')
+        flash('Garmin account unlinked successfully.', 'success')
+    except Exception as e:
+        app.logger.error(f"Error unlinking Garmin: {str(e)}")
+        flash('An error occurred while unlinking Garmin.', 'danger')
+    return redirect(url_for('dashboard'))
+
 
 @app.route('/admin-dashboard/update-user-points', methods=['POST'])
 @login_required
